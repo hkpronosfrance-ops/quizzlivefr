@@ -134,10 +134,29 @@ function modeLabel(mode: DuplicateMode) {
   return "Doublons ignorés";
 }
 
-function shortDate(value: string) {
+function plural(count: number, singular: string, pluralForm: string) {
+  return `${count} ${count > 1 ? pluralForm : singular}`;
+}
+
+function lastImportLabel(item?: ImportHistory) {
+  if (!item) return "—";
+  if (item.replaced_count > 0 && item.added_count === 0) return plural(item.replaced_count, "remplacée", "remplacées");
+  if (item.added_count > 0 && item.replaced_count === 0) return plural(item.added_count, "ajoutée", "ajoutées");
+  if (item.added_count > 0 || item.replaced_count > 0) return `${item.added_count + item.replaced_count} traitées`;
+  if (item.ignored_count > 0) return plural(item.ignored_count, "ignorée", "ignorées");
+  return "0 traitée";
+}
+
+function formatDate(value: string) {
   return new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
     month: "2-digit",
+    year: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
@@ -412,12 +431,12 @@ export default function ImportsExportsPage() {
           { l: "Questions en banque", v: bankCount, h: "Catalogue actuellement enregistré", i: Database, c: "#8B5CF6" },
           { l: "Questions actives", v: activeCount, h: "Disponibles pour les sessions", i: CheckCircle2, c: "#22C55E" },
           { l: "Catégories", v: categories.length, h: "Catégories reconnues à l'import", i: FolderOpen, c: "#38BDF8" },
-          { l: "Dernier import", v: lastImport ? lastImport.added_count + lastImport.replaced_count : "—", h: lastImport ? lastImport.file_name : "Aucun historique", i: FileUp, c: "#F59E0B" },
+          { l: "Dernier import", v: lastImportLabel(lastImport), h: lastImport ? `${lastImport.file_name} · ${formatDate(lastImport.created_at)} à ${formatTime(lastImport.created_at)}` : "Aucun historique", i: FileUp, c: "#F59E0B" },
         ].map((m) => (
           <div key={m.l} className="rounded-xl border border-auth-border bg-auth-panel p-4">
             <div className="flex gap-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${m.c}18`, color: m.c }}><m.i size={18}/></div>
-              <div><p className="text-[10px] uppercase tracking-[.15em] font-bold text-auth-mutedDim">{m.l}</p><p className="text-2xl font-bold text-auth-text mt-1">{m.v}</p><p className="text-[11px] text-auth-muted mt-1 truncate max-w-[240px]">{m.h}</p></div>
+              <div className="min-w-0"><p className="text-[10px] uppercase tracking-[.15em] font-bold text-auth-mutedDim">{m.l}</p><p className="text-2xl font-bold text-auth-text mt-1 leading-tight">{m.v}</p><p className="text-[11px] text-auth-muted mt-1 truncate max-w-[260px]">{m.h}</p></div>
             </div>
           </div>
         ))}
@@ -520,10 +539,26 @@ export default function ImportsExportsPage() {
               ) : (
                 <div className="flex flex-col gap-2">
                   {history.map((item) => (
-                    <div key={item.id} className="rounded-lg border border-auth-border bg-auth-bg/40 p-3">
-                      <div className="flex items-center justify-between gap-2"><p className="text-[11px] font-semibold text-auth-text truncate">{item.file_name}</p><span className="text-[9px] text-auth-muted shrink-0">{shortDate(item.created_at)}</span></div>
-                      <p className="text-[9px] text-auth-muted mt-1">{modeLabel(item.mode)}</p>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[9px]"><span className="text-emerald-400">+{item.added_count} ajoutée(s)</span>{item.replaced_count > 0 && <span className="text-auth-blue">{item.replaced_count} remplacée(s)</span>}{item.ignored_count > 0 && <span className="text-amber-400">{item.ignored_count} ignorée(s)</span>}{item.error_count > 0 && <span className="text-red-400">{item.error_count} erreur(s)</span>}</div>
+                    <div key={item.id} className="rounded-xl border border-auth-border bg-auth-bg/40 p-3.5 hover:border-white/10 transition">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold text-auth-text truncate">{item.file_name}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[9px] text-auth-muted">
+                            <span>{modeLabel(item.mode)}</span>
+                            <span className="text-auth-mutedDim">•</span>
+                            <span>{formatDate(item.created_at)}</span>
+                            <span>à {formatTime(item.created_at)}</span>
+                          </div>
+                        </div>
+                        <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/8 px-2 py-1 text-[8px] font-bold uppercase tracking-wide text-emerald-400"><CheckCircle2 size={10}/> Terminé</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5 mt-3">
+                        <div className="rounded-lg border border-emerald-500/15 bg-emerald-500/5 px-2.5 py-2"><p className="text-[8px] uppercase tracking-wide text-emerald-400/70">Ajoutées</p><p className="text-[11px] font-bold text-emerald-400 mt-0.5">{item.added_count}</p></div>
+                        <div className="rounded-lg border border-auth-blue/20 bg-auth-blue/5 px-2.5 py-2"><p className="text-[8px] uppercase tracking-wide text-auth-blue/70">Remplacées</p><p className="text-[11px] font-bold text-auth-blue mt-0.5">{item.replaced_count}</p></div>
+                        <div className="rounded-lg border border-amber-500/15 bg-amber-500/5 px-2.5 py-2"><p className="text-[8px] uppercase tracking-wide text-amber-400/70">Ignorées</p><p className="text-[11px] font-bold text-amber-400 mt-0.5">{item.ignored_count}</p></div>
+                        <div className={`rounded-lg border px-2.5 py-2 ${item.error_count > 0 ? "border-red-500/20 bg-red-500/5" : "border-auth-border bg-white/[0.015]"}`}><p className={`text-[8px] uppercase tracking-wide ${item.error_count > 0 ? "text-red-400/70" : "text-auth-mutedDim"}`}>Erreurs</p><p className={`text-[11px] font-bold mt-0.5 ${item.error_count > 0 ? "text-red-400" : "text-auth-muted"}`}>{item.error_count}</p></div>
+                      </div>
                     </div>
                   ))}
                 </div>
