@@ -227,7 +227,7 @@ export default function NotificationsPage() {
       </section>
 
       <section className="grid grid-cols-[minmax(0,1fr)_360px] gap-4 items-start">
-        <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden min-h-[500px]">
+        <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden min-h-[460px]">
           <div className="h-14 px-4 border-b border-auth-border flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5">
               {filters.map((item) => (
@@ -241,15 +241,15 @@ export default function NotificationsPage() {
           </div>
 
           {loading ? (
-            <div className="h-[440px] flex items-center justify-center text-auth-muted text-sm">Chargement des notifications…</div>
+            <div className="h-[400px] flex items-center justify-center text-auth-muted text-sm">Chargement des notifications…</div>
           ) : filtered.length === 0 ? (
-            <div className="h-[440px] flex flex-col items-center justify-center text-center px-6">
+            <div className="h-[400px] flex flex-col items-center justify-center -translate-y-2 text-center px-6">
               <div className="w-14 h-14 rounded-2xl border border-auth-blue/20 bg-auth-blue/[0.06] flex items-center justify-center text-auth-blue mb-4"><BellRing size={23} /></div>
               <p className="text-auth-text font-semibold text-[15px]">Centre de notifications prêt</p>
               <p className="text-auth-muted text-xs mt-1.5 max-w-[430px] leading-5">Aucune alerte pour le moment. Les débuts et fins de session ainsi que les détections sensibles apparaîtront ici automatiquement.</p>
               <div className="mt-5 flex items-center gap-2 text-[10px] text-auth-muted">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-auth-border bg-black/15 px-2.5 py-1.5"><CircleCheck size={12} className="text-auth-live" /> Suivi interne actif</span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-auth-border bg-black/15 px-2.5 py-1.5"><ShieldAlert size={12} className="text-amber-400" /> Règles sensibles surveillées</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/[0.06] px-2.5 py-1.5 text-emerald-300"><CircleCheck size={12} className="text-emerald-400" /> Suivi interne actif</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/20 bg-amber-400/[0.04] px-2.5 py-1.5"><ShieldAlert size={12} className="text-amber-400" /> Règles sensibles surveillées</span>
               </div>
             </div>
           ) : (
@@ -273,13 +273,13 @@ export default function NotificationsPage() {
           )}
         </div>
 
-        <aside className="space-y-4">
+        <aside className="space-y-3">
           <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
             <div className="px-4 py-3 border-b border-auth-border flex items-center gap-2">
               <Settings2 size={15} className="text-auth-blue" />
               <div><p className="text-auth-text text-xs font-bold">Préférences</p><p className="text-auth-mutedDim text-[10px]">Événements à faire remonter</p></div>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="px-4 py-3.5 space-y-3">
               {prefs && [
                 ["session_started", "Début de session", "Quand une session démarre", Radio],
                 ["session_ended", "Fin de session", "Quand une session est clôturée", CheckCheck],
@@ -296,7 +296,7 @@ export default function NotificationsPage() {
                 );
               })}
             </div>
-            <div className="px-4 py-3 border-t border-auth-border bg-black/[0.08] flex items-center gap-3">
+            <div className="px-4 py-2.5 border-t border-auth-border bg-black/[0.08] flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg border border-auth-border flex items-center justify-center text-auth-muted">{prefs?.sound_enabled ? <Volume2 size={14} className="text-auth-purple" /> : <VolumeX size={14} />}</div>
               <div className="flex-1"><p className="text-auth-text text-xs font-semibold">Alerte sonore</p><p className="text-auth-mutedDim text-[10px] mt-0.5">Dans ce navigateur</p></div>
               {prefs && <Switch checked={prefs.sound_enabled} onChange={() => togglePreference("sound_enabled")} />}
@@ -309,23 +309,23 @@ export default function NotificationsPage() {
               <p className="text-auth-mutedDim text-[10px] mt-0.5">Modes de réception actuellement disponibles</p>
             </div>
             <div className="p-3 space-y-2">
-              <div className="rounded-lg border border-auth-live/20 bg-auth-live/[0.035] px-3 py-2.5 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-auth-live/10 text-auth-live flex items-center justify-center"><Bell size={14} /></div>
+              <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.055] px-3 py-2.5 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center"><Bell size={14} /></div>
                 <div className="flex-1"><p className="text-auth-text text-xs font-semibold">Panel QuizzLiveFR</p><p className="text-auth-mutedDim text-[10px] mt-0.5">Centre + cloche du header</p></div>
-                <span className="text-[9px] font-bold text-auth-live">ACTIF</span>
+                <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[8px] font-bold tracking-wide text-emerald-300">ACTIF</span>
               </div>
-              <div className="rounded-lg border border-auth-border px-3 py-2.5 flex items-center gap-3 opacity-70">
-                <div className="w-8 h-8 rounded-lg bg-white/[0.03] text-auth-muted flex items-center justify-center"><Mail size={14} /></div>
-                <div className="flex-1"><p className="text-auth-text text-xs font-semibold">Email</p><p className="text-auth-mutedDim text-[10px] mt-0.5">Aucun service configuré</p></div>
-                <span className="text-[9px] font-bold text-auth-mutedDim">NON CONFIGURÉ</span>
+              <div className="rounded-lg border border-auth-border px-3 py-2.5 flex items-center gap-3 bg-white/[0.01]">
+                <div className="w-8 h-8 rounded-lg bg-white/[0.035] text-auth-muted flex items-center justify-center"><Mail size={14} /></div>
+                <div className="flex-1"><p className="text-auth-text/85 text-xs font-semibold">Email</p><p className="text-auth-muted text-[10px] mt-0.5">Aucun service configuré</p></div>
+                <span className="rounded border border-auth-border bg-white/[0.025] px-1.5 py-1 text-[8px] font-bold text-auth-muted">NON CONFIGURÉ</span>
               </div>
-              <div className="rounded-lg border border-auth-border px-3 py-2.5 flex items-center gap-3 opacity-70">
-                <div className="w-8 h-8 rounded-lg bg-white/[0.03] text-auth-muted flex items-center justify-center"><Smartphone size={14} /></div>
-                <div className="flex-1"><p className="text-auth-text text-xs font-semibold">Push / mobile</p><p className="text-auth-mutedDim text-[10px] mt-0.5">Aucun canal externe connecté</p></div>
-                <span className="text-[9px] font-bold text-auth-mutedDim">NON CONFIGURÉ</span>
+              <div className="rounded-lg border border-auth-border px-3 py-2.5 flex items-center gap-3 bg-white/[0.01]">
+                <div className="w-8 h-8 rounded-lg bg-white/[0.035] text-auth-muted flex items-center justify-center"><Smartphone size={14} /></div>
+                <div className="flex-1"><p className="text-auth-text/85 text-xs font-semibold">Push / mobile</p><p className="text-auth-muted text-[10px] mt-0.5">Aucun canal externe connecté</p></div>
+                <span className="rounded border border-auth-border bg-white/[0.025] px-1.5 py-1 text-[8px] font-bold text-auth-muted">NON CONFIGURÉ</span>
               </div>
             </div>
-            <div className="px-4 py-3 border-t border-auth-border bg-auth-blue/[0.025]">
+            <div className="px-4 py-2.5 border-t border-auth-border bg-auth-blue/[0.025]">
               <Link href="/admin/chat-moderation" className="text-[10px] font-semibold text-auth-blue hover:underline">Gérer les mots surveillés →</Link>
             </div>
           </div>
