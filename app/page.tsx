@@ -123,7 +123,9 @@ export default function OverlayPage() {
     ? (["a", "b", "c", "d"] as const).filter((c) => question[`choice_${c}`])
     : [];
 
-  const elapsed = question ? (now - new Date(question.started_at).getTime()) / 1000 : 0;
+  const elapsed = question
+    ? ((question.paused_at ? new Date(question.paused_at).getTime() : now) - new Date(question.started_at).getTime()) / 1000
+    : 0;
   const remaining = question ? Math.max(0, question.duration_seconds - elapsed) : 0;
   const progress = question ? Math.max(0, Math.min(1, remaining / question.duration_seconds)) : 0;
   const isClosed = question?.status === "closed" || remaining <= 0;

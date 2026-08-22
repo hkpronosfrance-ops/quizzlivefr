@@ -39,7 +39,18 @@ export type Question = {
   duration_seconds: number;
   started_at: string;
   ends_at: string;
+  paused_at: string | null;
   status: "active" | "closed";
+};
+
+export type ChatMessage = {
+  id: string;
+  session_id: string;
+  tiktok_user: string;
+  message: string;
+  is_vote: boolean;
+  choice: "a" | "b" | "c" | "d" | null;
+  created_at: string;
 };
 
 export type LeaderboardRow = {
