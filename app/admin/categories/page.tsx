@@ -1,354 +1,72 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  Search,
-  Filter,
-  Plus,
-  Globe,
-  Trophy,
-  Film,
-  Landmark,
-  Map,
-  Music,
-  FlaskConical,
-  Gamepad2,
-  Cpu,
-  Star,
-  Pencil,
-  Trash2,
-  MoreVertical,
-  ChevronLeft,
-  ChevronRight,
-  X,
-  FolderOpen,
-  Users2,
-  Crown,
-  Clock,
-  type LucideIcon,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Search, Plus, Globe, Trophy, Film, Landmark, Map, Music, FlaskConical, Gamepad2, Cpu, Star, Pencil, Trash2, X, FolderOpen, CheckCircle2, CircleOff, Clock3, RefreshCw, Power, type LucideIcon } from "lucide-react";
 import { AdminTopControls } from "@/components/AdminTopControls";
 import { useAdminToast } from "@/components/AdminToastContext";
+import { supabaseBrowser } from "@/lib/supabase";
 
-type Category = {
-  id: string;
-  name: string;
-  description: string;
-  icon: LucideIcon;
-  color: string;
-  questions: number;
-  usagePct: number;
-  createdAt: string;
-};
+type CategoryRow = { id: string; name: string; description: string; icon: string; color: string; is_active: boolean; created_at: string; updated_at: string };
+type FormState = { name: string; description: string; icon: string; color: string; isActive: boolean };
 
-const ICON_CHOICES: { icon: LucideIcon; label: string }[] = [
-  { icon: Globe, label: "Globe" },
-  { icon: Trophy, label: "Trophée" },
-  { icon: Film, label: "Film" },
-  { icon: Landmark, label: "Monument" },
-  { icon: Music, label: "Musique" },
-  { icon: FlaskConical, label: "Sciences" },
-  { icon: Gamepad2, label: "Jeu" },
-  { icon: Star, label: "Étoile" },
-];
-
+const ICONS: Record<string, LucideIcon> = { globe: Globe, trophy: Trophy, film: Film, landmark: Landmark, map: Map, music: Music, science: FlaskConical, game: Gamepad2, cpu: Cpu, star: Star };
+const ICON_CHOICES = [["globe","Globe"],["trophy","Trophée"],["film","Cinéma"],["landmark","Histoire"],["map","Carte"],["music","Musique"],["science","Sciences"],["game","Jeux"],["cpu","Technologie"],["star","Autres"]] as const;
 const COLOR_CHOICES = ["#9B4DFF", "#22C55E", "#4C6FFF", "#F5A623", "#3DDCFF", "#FF3D8E", "#14B8A6", "#6366F1"];
+const EMPTY_FORM: FormState = { name: "", description: "", icon: "globe", color: "#9B4DFF", isActive: true };
 
-const INITIAL_CATEGORIES: Category[] = [
-  { id: "1", name: "Culture générale", description: "Connaissances générales et faits divers", icon: Globe, color: "#9B4DFF", questions: 2012, usagePct: 42, createdAt: "15/01/2025" },
-  { id: "2", name: "Sport", description: "Sports, athlètes, compétitions et records", icon: Trophy, color: "#22C55E", questions: 876, usagePct: 18, createdAt: "15/01/2025" },
-  { id: "3", name: "Cinéma & TV", description: "Films, séries, acteurs et réalisateurs", icon: Film, color: "#4C6FFF", questions: 654, usagePct: 14, createdAt: "16/01/2025" },
-  { id: "4", name: "Histoire", description: "Événements historiques et personnalités", icon: Landmark, color: "#F5A623", questions: 521, usagePct: 11, createdAt: "16/01/2025" },
-  { id: "5", name: "Géographie", description: "Pays, capitales, lieux et monuments", icon: Map, color: "#3DDCFF", questions: 398, usagePct: 8, createdAt: "17/01/2025" },
-  { id: "6", name: "Musique", description: "Artistes, albums, chansons et genres", icon: Music, color: "#FF3D8E", questions: 287, usagePct: 6, createdAt: "18/01/2025" },
-  { id: "7", name: "Sciences", description: "Sciences, technologie et innovations", icon: FlaskConical, color: "#9B4DFF", questions: 182, usagePct: 4, createdAt: "18/01/2025" },
-  { id: "8", name: "Jeux vidéo", description: "Jeux, consoles, personnages et studios", icon: Gamepad2, color: "#F5A623", questions: 156, usagePct: 3, createdAt: "19/01/2025" },
-  { id: "9", name: "Intelligence artificielle", description: "IA, machine learning et technologies", icon: Cpu, color: "#6B7086", questions: 64, usagePct: 2, createdAt: "19/05/2025" },
-  { id: "10", name: "Autres", description: "Divers et catégories spéciales", icon: Star, color: "#6B7086", questions: 0, usagePct: 0, createdAt: "20/05/2025" },
-];
+function formatDate(value: string) { return new Date(value).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }); }
+function StatCard({ icon: Icon, color, label, value, helper }: { icon: LucideIcon; color: string; label: string; value: string; helper: string }) { return <div className="bg-auth-panel border border-auth-border rounded-xl p-4"><div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3" style={{ background: `${color}20`, color }}><Icon size={17}/></div><p className="text-auth-mutedDim text-[10px] font-bold uppercase tracking-[0.14em] mb-1">{label}</p><p className="text-auth-text text-2xl font-bold mb-1">{value}</p><p className="text-auth-muted text-xs">{helper}</p></div>; }
 
 export default function CategoriesPage() {
+  const db = useMemo(() => supabaseBrowser(), []);
   const notify = useAdminToast();
-  const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
-  const [showModal, setShowModal] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"all"|"active"|"inactive">("all");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<CategoryRow|null>(null);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [lastUpdated, setLastUpdated] = useState<Date|null>(null);
 
-  const [newName, setNewName] = useState("");
-  const [newDesc, setNewDesc] = useState("");
-  const [newIcon, setNewIcon] = useState(0);
-  const [newColor, setNewColor] = useState(0);
-
-  const filtered = useMemo(
-    () => categories.filter((c) => c.name.toLowerCase().includes(search.toLowerCase())),
-    [categories, search]
-  );
-
-  const totalQuestions = categories.reduce((sum, c) => sum + c.questions, 0);
-  const mainCategory = [...categories].sort((a, b) => b.usagePct - a.usagePct)[0];
-  const lastAdded = categories[categories.length - 1];
-
-  function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newName.trim()) return;
-    const cat: Category = {
-      id: String(Date.now()),
-      name: newName.trim(),
-      description: newDesc.trim() || "Aucune description",
-      icon: ICON_CHOICES[newIcon].icon,
-      color: COLOR_CHOICES[newColor],
-      questions: 0,
-      usagePct: 0,
-      createdAt: new Date().toLocaleDateString("fr-FR"),
-    };
-    setCategories((prev) => [...prev, cat]);
-    setShowModal(false);
-    setNewName("");
-    setNewDesc("");
-    setNewIcon(0);
-    setNewColor(0);
-    notify(`Catégorie « ${cat.name} » créée.`);
+  async function loadCategories() {
+    setLoading(true);
+    const { data, error } = await db.from("categories").select("id,name,description,icon,color,is_active,created_at,updated_at").order("created_at", { ascending: true });
+    if (error) notify(`Impossible de charger les catégories : ${error.message}`);
+    setCategories((data ?? []) as CategoryRow[]); setLastUpdated(new Date()); setLoading(false);
   }
 
-  return (
-    <div className="p-8 flex flex-col gap-6">
-      {/* Page header */}
-      <div className="flex items-center justify-between -mt-2 mb-2">
-        <div>
-          <h1 className="text-auth-text font-bold text-2xl">Catégories</h1>
-          <p className="text-auth-muted text-sm">Gérez les catégories de questions disponibles dans vos quiz.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-auth-mutedDim" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher une catégorie..."
-              className="bg-auth-panel border border-auth-border rounded-lg pl-9 pr-3 py-2 text-sm text-auth-text outline-none focus:border-auth-blue w-56 placeholder:text-auth-mutedDim"
-            />
-          </div>
-          <button
-            onClick={() => notify("Filtres avancés — bientôt disponible.")}
-            className="flex items-center gap-1.5 border border-auth-border rounded-lg px-3 py-2 text-auth-text text-sm hover:bg-white/5 transition"
-          >
-            <Filter size={14} /> Filtrer
-          </button>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-white text-sm font-semibold"
-            style={{ background: "linear-gradient(90deg, #4C6FFF 0%, #9B4DFF 100%)" }}
-          >
-            <Plus size={15} /> Nouvelle catégorie
-          </button>
-          <AdminTopControls />
-        </div>
-      </div>
+  useEffect(() => { loadCategories(); const channel = db.channel("categories-v2-live").on("postgres_changes", { event: "*", schema: "public", table: "categories" }, loadCategories).subscribe(); return () => { db.removeChannel(channel); }; /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [db]);
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-auth-panel border border-auth-border rounded-xl p-4">
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 bg-auth-purple/20 text-auth-purple">
-            <FolderOpen size={17} />
-          </div>
-          <p className="text-auth-mutedDim text-[10px] font-bold uppercase tracking-wide mb-1">Catégories totales</p>
-          <p className="text-auth-text text-2xl font-bold mb-1">{categories.length}</p>
-          <p className="text-auth-positive text-xs">+2 ce mois-ci</p>
-        </div>
-        <div className="bg-auth-panel border border-auth-border rounded-xl p-4">
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 bg-auth-blue/20 text-auth-blue">
-            <Users2 size={17} />
-          </div>
-          <p className="text-auth-mutedDim text-[10px] font-bold uppercase tracking-wide mb-1">Questions associées</p>
-          <p className="text-auth-text text-2xl font-bold mb-1">{totalQuestions.toLocaleString("fr-FR")}</p>
-          <p className="text-auth-positive text-xs">+128 ce mois-ci</p>
-        </div>
-        <div className="bg-auth-panel border border-auth-border rounded-xl p-4">
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 bg-auth-positive/20 text-auth-positive">
-            <Crown size={17} />
-          </div>
-          <p className="text-auth-mutedDim text-[10px] font-bold uppercase tracking-wide mb-1">Catégorie principale</p>
-          <p className="text-auth-text text-lg font-bold mb-1">{mainCategory.name}</p>
-          <p className="text-auth-mutedDim text-xs">{mainCategory.usagePct}% des questions</p>
-        </div>
-        <div className="bg-auth-panel border border-auth-border rounded-xl p-4">
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 bg-auth-live/20 text-auth-live">
-            <Clock size={17} />
-          </div>
-          <p className="text-auth-mutedDim text-[10px] font-bold uppercase tracking-wide mb-1">Dernière ajoutée</p>
-          <p className="text-auth-text text-lg font-bold mb-1">{lastAdded.name}</p>
-          <p className="text-auth-mutedDim text-xs">Ajoutée récemment</p>
-        </div>
-      </div>
+  const filtered = useMemo(() => { const query = search.trim().toLowerCase(); return categories.filter((c) => { if (statusFilter === "active" && !c.is_active) return false; if (statusFilter === "inactive" && c.is_active) return false; return !query || `${c.name} ${c.description}`.toLowerCase().includes(query); }); }, [categories, search, statusFilter]);
+  const activeCount = categories.filter((c) => c.is_active).length;
+  const inactiveCount = categories.length - activeCount;
+  const lastAdded = [...categories].sort((a,b) => +new Date(b.created_at) - +new Date(a.created_at))[0];
 
-      {/* Table */}
-      <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-auth-mutedDim text-[10px] uppercase tracking-wide border-b border-auth-border">
-              <th className="text-left px-5 py-3 font-medium">Catégorie</th>
-              <th className="text-left px-2 py-3 font-medium">Description</th>
-              <th className="text-left px-2 py-3 font-medium">Questions</th>
-              <th className="text-left px-2 py-3 font-medium">Utilisation</th>
-              <th className="text-left px-2 py-3 font-medium">Créée le</th>
-              <th className="text-left px-2 py-3 font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((c) => {
-              const Icon = c.icon;
-              return (
-                <tr key={c.id} className="border-b border-auth-border last:border-b-0 hover:bg-white/[0.03] transition">
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${c.color}22`, color: c.color }}>
-                        <Icon size={17} />
-                      </div>
-                      <span className="text-auth-text font-medium">{c.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-2 py-3 text-auth-muted text-xs">{c.description}</td>
-                  <td className="px-2 py-3 text-auth-text font-semibold">{c.questions.toLocaleString("fr-FR")}</td>
-                  <td className="px-2 py-3">
-                    <div className="flex items-center gap-2 w-40">
-                      <div className="flex-1 h-1.5 rounded-full bg-auth-bg overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${c.usagePct}%`, background: c.color }} />
-                      </div>
-                      <span className="text-auth-mutedDim text-xs w-8 text-right">{c.usagePct}%</span>
-                    </div>
-                  </td>
-                  <td className="px-2 py-3 text-auth-muted text-xs">{c.createdAt}</td>
-                  <td className="px-2 py-3">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => notify("Modifier — bientôt disponible.")}
-                        className="w-7 h-7 rounded-lg border border-auth-border flex items-center justify-center text-auth-muted hover:text-auth-text hover:bg-white/5 transition"
-                      >
-                        <Pencil size={13} />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Supprimer la catégorie « ${c.name} » ?`)) {
-                            setCategories((prev) => prev.filter((x) => x.id !== c.id));
-                            notify(`Catégorie « ${c.name} » supprimée.`);
-                          }
-                        }}
-                        className="w-7 h-7 rounded-lg border border-auth-danger/40 flex items-center justify-center text-auth-danger hover:bg-auth-danger/10 transition"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                      <button
-                        onClick={() => notify("Options — bientôt disponible.")}
-                        className="w-7 h-7 rounded-lg border border-auth-border flex items-center justify-center text-auth-muted hover:text-auth-text hover:bg-white/5 transition"
-                      >
-                        <MoreVertical size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-5 py-8 text-center text-auth-mutedDim text-xs">
-                  Aucune catégorie ne correspond à cette recherche.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+  function openCreate() { setEditing(null); setForm(EMPTY_FORM); setModalOpen(true); }
+  function openEdit(c: CategoryRow) { setEditing(c); setForm({ name:c.name, description:c.description, icon:c.icon, color:c.color, isActive:c.is_active }); setModalOpen(true); }
 
-        <div className="flex items-center justify-between px-5 py-3 border-t border-auth-border text-xs text-auth-mutedDim">
-          <span>Affichage 1 à {filtered.length} sur {categories.length} catégories</span>
-          <div className="flex items-center gap-1">
-            <button className="p-1.5 rounded border border-auth-border hover:bg-white/5 transition"><ChevronLeft size={13} /></button>
-            <span className="w-7 h-7 flex items-center justify-center rounded bg-auth-blue text-white font-semibold">1</span>
-            <button onClick={() => notify("Pagination — bientôt disponible.")} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 transition">2</button>
-            <button className="p-1.5 rounded border border-auth-border hover:bg-white/5 transition"><ChevronRight size={13} /></button>
-          </div>
-        </div>
-      </div>
+  async function saveCategory(e: React.FormEvent) {
+    e.preventDefault(); if (!form.name.trim() || saving) return; setSaving(true);
+    const payload = { name: form.name.trim(), description: form.description.trim(), icon: form.icon, color: form.color, is_active: form.isActive };
+    const result = editing ? await db.from("categories").update(payload).eq("id", editing.id).select().single() : await db.from("categories").insert(payload).select().single();
+    if (result.error) { notify(result.error.code === "23505" ? "Une catégorie portant ce nom existe déjà." : `Enregistrement impossible : ${result.error.message}`); setSaving(false); return; }
+    notify(editing ? `Catégorie « ${payload.name} » mise à jour.` : `Catégorie « ${payload.name} » créée.`); setModalOpen(false); setEditing(null); setForm(EMPTY_FORM); await loadCategories(); setSaving(false);
+  }
 
-      {/* Create category modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-6" onClick={() => setShowModal(false)}>
-          <form
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={handleCreate}
-            className="bg-auth-panel border border-auth-border rounded-2xl w-full max-w-md overflow-hidden"
-          >
-            <div className="px-6 py-4 border-b border-auth-border flex items-center justify-between">
-              <span className="text-auth-text font-bold text-sm">Nouvelle catégorie</span>
-              <button type="button" onClick={() => setShowModal(false)} className="text-auth-mutedDim hover:text-auth-text transition">
-                <X size={18} />
-              </button>
-            </div>
+  async function toggleCategory(c: CategoryRow) { const { error } = await db.from("categories").update({ is_active: !c.is_active }).eq("id", c.id); if (error) return notify(`Modification impossible : ${error.message}`); notify(c.is_active ? `Catégorie « ${c.name} » désactivée.` : `Catégorie « ${c.name} » activée.`); await loadCategories(); }
+  async function deleteCategory(c: CategoryRow) { if (!window.confirm(`Supprimer définitivement la catégorie « ${c.name} » ?`)) return; const { error } = await db.from("categories").delete().eq("id", c.id); if (error) return notify(`Suppression impossible : ${error.message}`); notify(`Catégorie « ${c.name} » supprimée.`); await loadCategories(); }
 
-            <div className="p-6 flex flex-col gap-4">
-              <label className="flex flex-col gap-1.5">
-                <span className="text-auth-text text-sm">Nom</span>
-                <input
-                  required
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Ex. Cuisine du monde"
-                  className="bg-auth-bg border border-auth-border rounded-lg px-3.5 py-2.5 text-sm text-auth-text outline-none focus:border-auth-blue placeholder:text-auth-mutedDim"
-                />
-              </label>
+  return <div className="p-5 lg:p-8 flex flex-col gap-5 lg:gap-6">
+    <header className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4"><div><h1 className="text-auth-text font-bold text-2xl lg:text-3xl tracking-tight">Catégories</h1><p className="text-auth-muted text-sm mt-1">Gérez le catalogue de catégories qui alimentera votre banque de questions.</p></div><div className="flex items-center gap-2.5 flex-wrap"><div className="relative"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-auth-mutedDim"/><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Rechercher une catégorie..." className="bg-auth-panel border border-auth-border rounded-lg pl-9 pr-3 py-2.5 text-xs text-auth-text outline-none focus:border-auth-blue w-60 placeholder:text-auth-mutedDim"/></div><button onClick={loadCategories} className="flex items-center gap-2 border border-auth-border bg-auth-panel rounded-lg px-3.5 py-2.5 text-auth-text text-xs font-semibold hover:bg-white/5 transition"><RefreshCw size={14} className={loading?"animate-spin":""}/>Actualiser</button><button onClick={openCreate} className="flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-white text-xs font-semibold" style={{background:"linear-gradient(135deg,#4C6FFF 0%,#9B4DFF 52%,#FF3D8E 100%)"}}><Plus size={15}/>Nouvelle catégorie</button><div className="hidden xl:block h-8 w-px bg-auth-border mx-1"/><AdminTopControls/></div></header>
 
-              <label className="flex flex-col gap-1.5">
-                <span className="text-auth-text text-sm">Description</span>
-                <input
-                  value={newDesc}
-                  onChange={(e) => setNewDesc(e.target.value)}
-                  placeholder="Ex. Plats, ingrédients et traditions culinaires"
-                  className="bg-auth-bg border border-auth-border rounded-lg px-3.5 py-2.5 text-sm text-auth-text outline-none focus:border-auth-blue placeholder:text-auth-mutedDim"
-                />
-              </label>
+    <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3"><StatCard icon={FolderOpen} color="#9B4DFF" label="Catégories totales" value={String(categories.length)} helper="Catégories enregistrées dans Supabase"/><StatCard icon={CheckCircle2} color="#22C55E" label="Actives" value={String(activeCount)} helper="Disponibles pour le futur catalogue"/><StatCard icon={CircleOff} color="#6B7086" label="Désactivées" value={String(inactiveCount)} helper={inactiveCount?"Masquées du catalogue":"Aucune catégorie désactivée"}/><StatCard icon={Clock3} color="#F5A623" label="Dernière ajoutée" value={lastAdded?.name??"—"} helper={lastAdded?`Ajoutée le ${formatDate(lastAdded.created_at)}`:"Aucune catégorie enregistrée"}/></section>
 
-              <div className="flex flex-col gap-1.5">
-                <span className="text-auth-text text-sm">Icône</span>
-                <div className="flex flex-wrap gap-2">
-                  {ICON_CHOICES.map(({ icon: Icon, label }, i) => (
-                    <button
-                      type="button"
-                      key={label}
-                      onClick={() => setNewIcon(i)}
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center border transition ${
-                        newIcon === i ? "border-auth-blue bg-auth-blue/15 text-auth-blue" : "border-auth-border text-auth-muted hover:text-auth-text"
-                      }`}
-                    >
-                      <Icon size={16} />
-                    </button>
-                  ))}
-                </div>
-              </div>
+    <section className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden"><div className="px-4 py-3 border-b border-auth-border flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-1">{(["all","active","inactive"] as const).map((s)=><button key={s} onClick={()=>setStatusFilter(s)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${statusFilter===s?"bg-auth-blue/15 text-auth-text":"text-auth-muted hover:text-auth-text"}`}>{s==="all"?"Toutes":s==="active"?"Actives":"Désactivées"}</button>)}</div><span className="text-[10px] text-auth-mutedDim">{lastUpdated?`Mis à jour à ${lastUpdated.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}`:"Chargement…"}</span></div>
+    {loading&&categories.length===0?<div className="px-5 py-14 text-center"><FolderOpen size={22} className="mx-auto text-auth-mutedDim mb-3"/><p className="text-sm font-semibold text-auth-text">Chargement des catégories</p><p className="text-[11px] text-auth-muted mt-1">Lecture du catalogue Supabase.</p></div>:filtered.length===0?<div className="px-5 py-14 text-center"><FolderOpen size={22} className="mx-auto text-auth-mutedDim mb-3"/><p className="text-sm font-semibold text-auth-text">Aucune catégorie</p><p className="text-[11px] text-auth-muted mt-1">Créez votre première catégorie ou modifiez les filtres actuels.</p>{categories.length===0&&<button onClick={openCreate} className="mt-4 text-xs font-semibold text-auth-blue hover:underline">Créer une catégorie</button>}</div>:<div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead><tr className="text-auth-mutedDim text-[9px] uppercase tracking-[0.15em] border-b border-auth-border"><th className="text-left px-5 py-3 font-bold">Catégorie</th><th className="text-left px-3 py-3 font-bold">Description</th><th className="text-left px-3 py-3 font-bold">Statut</th><th className="text-left px-3 py-3 font-bold">Questions associées</th><th className="text-left px-3 py-3 font-bold">Créée le</th><th className="text-right px-5 py-3 font-bold">Actions</th></tr></thead><tbody>{filtered.map((c)=>{const Icon=ICONS[c.icon]??Globe;return <tr key={c.id} className="border-b border-auth-border/70 last:border-b-0 hover:bg-white/[0.025] transition"><td className="px-5 py-3.5"><div className="flex items-center gap-3"><div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{background:`${c.color}20`,color:c.color}}><Icon size={17}/></div><span className="text-auth-text font-semibold text-xs">{c.name}</span></div></td><td className="px-3 py-3.5 text-auth-muted text-xs max-w-[430px]"><span className="line-clamp-2">{c.description||"Aucune description"}</span></td><td className="px-3 py-3.5"><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${c.is_active?"bg-auth-positive/10 text-auth-positive":"bg-white/[0.04] text-auth-muted"}`}><span className="w-1.5 h-1.5 rounded-full bg-current"/>{c.is_active?"Active":"Désactivée"}</span></td><td className="px-3 py-3.5"><span className="text-auth-text font-semibold">0</span><p className="text-[9px] text-auth-mutedDim mt-0.5">Disponible avec la Banque de questions</p></td><td className="px-3 py-3.5 text-auth-muted text-xs">{formatDate(c.created_at)}</td><td className="px-5 py-3.5"><div className="flex items-center justify-end gap-2"><button onClick={()=>openEdit(c)} className="w-8 h-8 rounded-lg border border-auth-border flex items-center justify-center text-auth-muted hover:text-auth-text hover:bg-white/5" title="Modifier"><Pencil size={13}/></button><button onClick={()=>toggleCategory(c)} className="w-8 h-8 rounded-lg border border-auth-border flex items-center justify-center text-auth-muted hover:text-auth-text hover:bg-white/5" title={c.is_active?"Désactiver":"Activer"}><Power size={13}/></button><button onClick={()=>deleteCategory(c)} className="w-8 h-8 rounded-lg border border-auth-danger/35 flex items-center justify-center text-auth-danger hover:bg-auth-danger/10" title="Supprimer"><Trash2 size={13}/></button></div></td></tr>})}</tbody></table></div>}
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-5 py-3 border-t border-auth-border text-[10px] text-auth-mutedDim"><span>{filtered.length} catégorie{filtered.length>1?"s":""} affichée{filtered.length>1?"s":""}</span><span>Les compteurs de questions seront reliés à la Banque de questions.</span></div></section>
 
-              <div className="flex flex-col gap-1.5">
-                <span className="text-auth-text text-sm">Couleur</span>
-                <div className="flex flex-wrap gap-2">
-                  {COLOR_CHOICES.map((c, i) => (
-                    <button
-                      type="button"
-                      key={c}
-                      onClick={() => setNewColor(i)}
-                      className="w-8 h-8 rounded-full transition"
-                      style={{ background: c, outline: newColor === i ? `2px solid ${c}` : "none", outlineOffset: 2, opacity: newColor === i ? 1 : 0.6 }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="rounded-lg py-2.5 text-white text-sm font-semibold mt-1"
-                style={{ background: "linear-gradient(90deg, #4C6FFF 0%, #9B4DFF 100%)" }}
-              >
-                Enregistrer
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-    </div>
-  );
+    {modalOpen&&<div className="fixed inset-0 bg-black/70 backdrop-blur-[2px] flex items-center justify-center z-50 p-5" onClick={()=>!saving&&setModalOpen(false)}><form onClick={(e)=>e.stopPropagation()} onSubmit={saveCategory} className="bg-auth-panel border border-auth-border rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl"><div className="px-6 py-4 border-b border-auth-border flex items-center justify-between"><div><p className="text-auth-text font-bold text-sm">{editing?"Modifier la catégorie":"Nouvelle catégorie"}</p><p className="text-[10px] text-auth-muted mt-0.5">Les modifications sont enregistrées dans Supabase.</p></div><button type="button" disabled={saving} onClick={()=>setModalOpen(false)} className="text-auth-muted hover:text-auth-text"><X size={18}/></button></div><div className="p-6 space-y-5"><div><label className="block text-[10px] font-bold uppercase tracking-[0.14em] text-auth-mutedDim mb-2">Nom</label><input autoFocus value={form.name} onChange={(e)=>setForm(p=>({...p,name:e.target.value}))} maxLength={60} placeholder="Ex. Culture générale" className="w-full bg-auth-bg border border-auth-border rounded-lg px-3 py-2.5 text-sm text-auth-text outline-none focus:border-auth-blue placeholder:text-auth-mutedDim" required/></div><div><label className="block text-[10px] font-bold uppercase tracking-[0.14em] text-auth-mutedDim mb-2">Description</label><textarea value={form.description} onChange={(e)=>setForm(p=>({...p,description:e.target.value}))} maxLength={240} rows={3} placeholder="Décrivez le type de questions..." className="w-full resize-none bg-auth-bg border border-auth-border rounded-lg px-3 py-2.5 text-sm text-auth-text outline-none focus:border-auth-blue placeholder:text-auth-mutedDim"/></div><div><label className="block text-[10px] font-bold uppercase tracking-[0.14em] text-auth-mutedDim mb-2">Icône</label><div className="grid grid-cols-5 gap-2">{ICON_CHOICES.map(([key,label])=>{const Icon=ICONS[key];return <button key={key} type="button" title={label} onClick={()=>setForm(p=>({...p,icon:key}))} className={`h-10 rounded-lg border flex items-center justify-center ${form.icon===key?"border-auth-blue bg-auth-blue/10 text-auth-blue":"border-auth-border text-auth-muted hover:text-auth-text"}`}><Icon size={16}/></button>})}</div></div><div><label className="block text-[10px] font-bold uppercase tracking-[0.14em] text-auth-mutedDim mb-2">Couleur</label><div className="flex flex-wrap gap-2">{COLOR_CHOICES.map((color)=><button key={color} type="button" onClick={()=>setForm(p=>({...p,color}))} className={`w-8 h-8 rounded-full border-2 ${form.color===color?"border-white scale-110":"border-transparent"}`} style={{background:color}} aria-label={`Couleur ${color}`}/>)}</div></div><label className="flex items-center justify-between gap-4 rounded-xl border border-auth-border bg-auth-bg/40 px-4 py-3 cursor-pointer"><div><p className="text-xs font-semibold text-auth-text">Catégorie active</p><p className="text-[10px] text-auth-muted mt-0.5">Disponible pour les futurs packs et questions du catalogue.</p></div><input type="checkbox" checked={form.isActive} onChange={(e)=>setForm(p=>({...p,isActive:e.target.checked}))} className="accent-[#4C6FFF]"/></label></div><div className="px-6 py-4 border-t border-auth-border flex justify-end gap-2"><button type="button" disabled={saving} onClick={()=>setModalOpen(false)} className="px-4 py-2 rounded-lg border border-auth-border text-xs font-semibold text-auth-muted hover:text-auth-text">Annuler</button><button type="submit" disabled={saving||!form.name.trim()} className="px-4 py-2 rounded-lg text-xs font-semibold text-white disabled:opacity-50" style={{background:"linear-gradient(135deg,#4C6FFF 0%,#9B4DFF 55%,#FF3D8E 100%)"}}>{saving?"Enregistrement...":editing?"Enregistrer":"Créer la catégorie"}</button></div></form></div>}
+  </div>;
 }
