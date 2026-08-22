@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { Metadata } from "next";
+import { CategoryDropdownWheelBoost } from "@/components/CategoryDropdownWheelBoost";
 
 export const metadata: Metadata = {
   title: "QuizzLiveFR",
@@ -17,7 +18,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body className="font-body">{children}</body>
+      <body className="font-body">
+        <CategoryDropdownWheelBoost />
+        {children}
+      </body>
     </html>
   );
 }
