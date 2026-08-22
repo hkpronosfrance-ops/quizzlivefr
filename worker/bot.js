@@ -1,4 +1,4 @@
-import { WebcastPushConnection } from "tiktok-live-connector";
+import { TikTokLiveConnection } from "tiktok-live-connector";
 import { createClient } from "@supabase/supabase-js";
 
 const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME; // e.g. "quizzlivefr" (no @)
@@ -66,10 +66,15 @@ async function handleComment(data) {
   const endsAt = new Date(activeQuestion.ends_at).getTime();
   if (now > endsAt) return; // vote arrived too late, ignore
 
-  const choice = parseChoice(data.comment);
-  if (!choice) return;
+  // Field names differ slightly across tiktok-live-connector versions
+  // (comment/content, user.uniqueId/user.displayId) — read defensively.
+  const commentText = data.comment ?? data.content ?? "";
+  const tiktokUser = data.user?.uniqueId ?? data.user?.displayId ?? data.user?.nickname ?? data.uniqueId;
 
-  const tiktokUser = data.uniqueId;
+  if (!tiktokUser) return;
+
+  const choice = parseChoice(commentText);
+  if (!choice) return;
 
   const { error } = await db.from("answers").insert({
     question_id: activeQuestion.id,
@@ -89,7 +94,7 @@ async function handleComment(data) {
 }
 
 async function connect() {
-  const connection = new WebcastPushConnection(TIKTOK_USERNAME);
+  const connection = new TikTokLiveConnection(TIKTOK_USERNAME);
 
   connection.on("chat", handleComment);
 

@@ -8,6 +8,6 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
-    "tiktok-live-connector": "^2.0.6"
+    "tiktok-live-connector": "2.4.4"
   }
 }
