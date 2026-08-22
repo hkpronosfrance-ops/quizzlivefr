@@ -38,7 +38,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Parties", icon: Gamepad2, href: "/admin/parties" },
       { label: "Questions", icon: HelpCircle, href: "/admin/questions" },
       { label: "Catégories", icon: FolderOpen, href: "/admin/categories" },
-      { label: "Joueurs", icon: Users },
+      { label: "Joueurs", icon: Users, href: "/admin/joueurs" },
     ],
   },
   {
