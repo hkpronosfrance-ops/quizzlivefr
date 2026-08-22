@@ -36,7 +36,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { label: "Tableau de bord", icon: LayoutDashboard, href: "/admin" },
       { label: "Parties", icon: Gamepad2, href: "/admin/parties" },
-      { label: "Questions", icon: HelpCircle },
+      { label: "Questions", icon: HelpCircle, href: "/admin/questions" },
       { label: "Catégories", icon: FolderOpen },
       { label: "Joueurs", icon: Users },
     ],
