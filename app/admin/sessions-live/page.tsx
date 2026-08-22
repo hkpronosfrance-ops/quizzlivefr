@@ -1,47 +1,66 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Play,
-  Pause,
-  Square,
-  Megaphone,
-  Eraser,
-  Settings,
+  BarChart3,
+  BookOpen,
+  CheckCircle2,
+  Clock3,
+  Crown,
   ExternalLink,
   Link as LinkIcon,
-  Crown,
-  Send,
-  Smile,
+  Loader2,
+  MessageCircle,
+  Pause,
+  Play,
+  Plus,
+  Radio,
+  RefreshCw,
+  Square,
+  TimerReset,
+  Users2,
 } from "lucide-react";
+import { AdminTopControls } from "@/components/AdminTopControls";
+import { useAdminToast } from "@/components/AdminToastContext";
 import { supabaseBrowser } from "@/lib/supabase";
 import type { ChatMessage, LeaderboardRow, Question } from "@/lib/supabase";
-import { useAdminToast } from "@/components/AdminToastContext";
 
 const CHOICES = [
-  { key: "a" as const, color: "#4C6FFF" },
-  { key: "b" as const, color: "#FF3D8E" },
-  { key: "c" as const, color: "#22C55E" },
-  { key: "d" as const, color: "#F5A623" },
+  { key: "a" as const, label: "A", color: "#4C6FFF" },
+  { key: "b" as const, label: "B", color: "#FF3D8E" },
+  { key: "c" as const, label: "C", color: "#22C55E" },
+  { key: "d" as const, label: "D", color: "#F5A623" },
 ];
+
+type BusyAction = "start" | "end" | "pause" | "reveal" | "extend" | null;
+type SessionRow = { id: string; started_at: string; status: "active" | "ended" };
+
+function StatCard({ icon: Icon, color, label, value, helper }: { icon: typeof Users2; color: string; label: string; value: string; helper: string }) {
+  return (
+    <div className="bg-auth-panel border border-auth-border rounded-xl p-4">
+      <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3" style={{ background: `${color}20`, color }}>
+        <Icon size={17} />
+      </div>
+      <p className="text-auth-mutedDim text-[10px] font-bold uppercase tracking-[0.14em] mb-1">{label}</p>
+      <p className="text-auth-text text-xl font-bold mb-1">{value}</p>
+      <p className="text-auth-muted text-[10px]">{helper}</p>
+    </div>
+  );
+}
 
 export default function SessionsLivePage() {
   const db = useMemo(() => supabaseBrowser(), []);
   const notify = useAdminToast();
-  const composerRef = useRef<HTMLFormElement>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(null);
+  const [loadingSession, setLoadingSession] = useState(true);
+  const [busy, setBusy] = useState<BusyAction>(null);
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
   const [answerCounts, setAnswerCounts] = useState<Record<string, number>>({});
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [messageCount, setMessageCount] = useState(0);
   const [successRate, setSuccessRate] = useState<number | null>(null);
-
-  const [status, setStatus] = useState("");
-  const [launching, setLaunching] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   const [text, setText] = useState("");
@@ -50,44 +69,63 @@ export default function SessionsLivePage() {
   const [choiceC, setChoiceC] = useState("");
   const [choiceD, setChoiceD] = useState("");
   const [correct, setCorrect] = useState<"a" | "b" | "c" | "d">("a");
+  const [launching, setLaunching] = useState(false);
 
-  const choiceSetters: Record<string, (v: string) => void> = { a: setChoiceA, b: setChoiceB, c: setChoiceC, d: setChoiceD };
+  const choiceSetters: Record<string, (value: string) => void> = { a: setChoiceA, b: setChoiceB, c: setChoiceC, d: setChoiceD };
   const choiceValues: Record<string, string> = { a: choiceA, b: choiceB, c: choiceC, d: choiceD };
 
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 200);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(timer);
   }, []);
 
-  async function startSession() {
-    const res = await fetch("/api/session/start", { method: "POST" });
-    const data = await res.json();
-    if (data.session) {
-      setSessionId(data.session.id);
-      setSessionStartedAt(data.session.started_at);
-    } else {
-      setStatus("Erreur: " + data.error);
-    }
+  async function loadActiveSession() {
+    setLoadingSession(true);
+    const { data, error } = await db
+      .from("sessions")
+      .select("id,started_at,status")
+      .eq("status", "active")
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) notify(`Impossible de charger la session : ${error.message}`);
+    const session = data as SessionRow | null;
+    setSessionId(session?.id ?? null);
+    setSessionStartedAt(session?.started_at ?? null);
+    setLoadingSession(false);
   }
-  useEffect(() => {
-    startSession();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
-    if (!sessionId) return;
-    db.from("questions").select("*").eq("session_id", sessionId).eq("status", "active").maybeSingle().then(({ data }) => setActiveQuestion(data));
-
+    loadActiveSession();
     const channel = db
-      .channel(`sl-questions-${sessionId}`)
+      .channel("session-live-v2-session")
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => loadActiveSession())
+      .subscribe();
+    return () => { db.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setActiveQuestion(null);
+      setAnswerCounts({});
+      setLeaderboard([]);
+      setChatMessages([]);
+      setMessageCount(0);
+      setSuccessRate(null);
+      return;
+    }
+
+    db.from("questions").select("*").eq("session_id", sessionId).eq("status", "active").maybeSingle().then(({ data }) => setActiveQuestion(data as Question | null));
+    const channel = db
+      .channel(`session-live-v2-questions-${sessionId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "questions", filter: `session_id=eq.${sessionId}` }, (payload) => {
         const row = payload.new as Question;
-        setActiveQuestion(row.status === "active" ? row : null);
+        setActiveQuestion(row?.status === "active" ? row : null);
       })
       .subscribe();
-    return () => {
-      db.removeChannel(channel);
-    };
+    return () => { db.removeChannel(channel); };
   }, [db, sessionId]);
 
   useEffect(() => {
@@ -95,490 +133,280 @@ export default function SessionsLivePage() {
       setAnswerCounts({});
       return;
     }
-    function refresh() {
-      db.from("answers").select("choice").eq("question_id", activeQuestion!.id).then(({ data }) => {
-        const counts: Record<string, number> = {};
-        (data ?? []).forEach((a) => (counts[a.choice] = (counts[a.choice] ?? 0) + 1));
-        setAnswerCounts(counts);
-      });
-    }
+    const refresh = async () => {
+      const { data } = await db.from("answers").select("choice").eq("question_id", activeQuestion.id);
+      const counts: Record<string, number> = {};
+      (data ?? []).forEach((answer) => { counts[answer.choice] = (counts[answer.choice] ?? 0) + 1; });
+      setAnswerCounts(counts);
+    };
     refresh();
     const channel = db
-      .channel(`sl-answers-${activeQuestion.id}`)
+      .channel(`session-live-v2-answers-${activeQuestion.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "answers", filter: `question_id=eq.${activeQuestion.id}` }, refresh)
       .subscribe();
-    return () => {
-      db.removeChannel(channel);
-    };
+    return () => { db.removeChannel(channel); };
   }, [db, activeQuestion?.id]);
 
   useEffect(() => {
     if (!sessionId) return;
-    function refresh() {
-      db.from("leaderboard").select("*").eq("session_id", sessionId as string).order("total_points", { ascending: false }).limit(5).then(({ data }) => setLeaderboard(data ?? []));
-    }
+    const refresh = async () => {
+      const { data } = await db.from("leaderboard").select("*").eq("session_id", sessionId).order("total_points", { ascending: false }).limit(5);
+      setLeaderboard((data ?? []) as LeaderboardRow[]);
+    };
     refresh();
     const channel = db
-      .channel(`sl-leaderboard-${sessionId}`)
+      .channel(`session-live-v2-leaderboard-${sessionId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "leaderboard", filter: `session_id=eq.${sessionId}` }, refresh)
       .subscribe();
-    return () => {
-      db.removeChannel(channel);
-    };
+    return () => { db.removeChannel(channel); };
   }, [db, sessionId]);
 
   useEffect(() => {
     if (!sessionId) return;
-    db.from("chat_messages")
-      .select("*")
-      .eq("session_id", sessionId)
-      .order("created_at", { ascending: true })
-      .limit(50)
-      .then(({ data }) => setChatMessages(data ?? []));
-
-    db.from("chat_messages").select("*", { count: "exact", head: true }).eq("session_id", sessionId).then(({ count }) => setMessageCount(count ?? 0));
-
+    const refreshChat = async () => {
+      const [{ data }, { count }] = await Promise.all([
+        db.from("chat_messages").select("*").eq("session_id", sessionId).order("created_at", { ascending: false }).limit(30),
+        db.from("chat_messages").select("*", { count: "exact", head: true }).eq("session_id", sessionId),
+      ]);
+      setChatMessages(((data ?? []) as ChatMessage[]).reverse());
+      setMessageCount(count ?? 0);
+    };
+    refreshChat();
     const channel = db
-      .channel(`sl-chat-${sessionId}`)
+      .channel(`session-live-v2-chat-${sessionId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages", filter: `session_id=eq.${sessionId}` }, (payload) => {
-        setChatMessages((prev) => [...prev.slice(-49), payload.new as ChatMessage]);
-        setMessageCount((c) => c + 1);
+        setChatMessages((previous) => [...previous.slice(-29), payload.new as ChatMessage]);
+        setMessageCount((value) => value + 1);
       })
       .subscribe();
-    return () => {
-      db.removeChannel(channel);
-    };
+    return () => { db.removeChannel(channel); };
   }, [db, sessionId]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages.length]);
-
-  useEffect(() => {
     if (!sessionId) return;
-    async function computeRate() {
-      const { data: qs } = await db.from("questions").select("id").eq("session_id", sessionId as string);
-      const ids = (qs ?? []).map((q) => q.id);
-      if (ids.length === 0) {
-        setSuccessRate(null);
-        return;
-      }
-      const { data: ans } = await db.from("answers").select("is_correct").in("question_id", ids);
-      if (!ans || ans.length === 0) {
-        setSuccessRate(null);
-        return;
-      }
-      const correctCount = ans.filter((a) => a.is_correct).length;
-      setSuccessRate(Math.round((correctCount / ans.length) * 100));
-    }
-    computeRate();
-    const t = setInterval(computeRate, 4000);
-    return () => clearInterval(t);
+    const compute = async () => {
+      const { data: questions } = await db.from("questions").select("id").eq("session_id", sessionId);
+      const ids = (questions ?? []).map((question) => question.id);
+      if (!ids.length) return setSuccessRate(null);
+      const { data: answers } = await db.from("answers").select("is_correct").in("question_id", ids);
+      if (!answers?.length) return setSuccessRate(null);
+      setSuccessRate(Math.round((answers.filter((answer) => answer.is_correct).length / answers.length) * 100));
+    };
+    compute();
+    const timer = setInterval(compute, 5000);
+    return () => clearInterval(timer);
   }, [db, sessionId, answerCounts]);
 
-  async function launchQuestion(e: React.FormEvent) {
-    e.preventDefault();
-    if (!sessionId) return;
-    setLaunching(true);
-    const res = await fetch("/api/question/launch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, text, choice_a: choiceA, choice_b: choiceB, choice_c: choiceC, choice_d: choiceD, correct_choice: correct }),
-    });
-    const data = await res.json();
-    setLaunching(false);
-    if (data.question) {
-      setStatus("Question envoyée en direct.");
-      setText(""); setChoiceA(""); setChoiceB(""); setChoiceC(""); setChoiceD(""); setCorrect("a");
-    } else {
-      setStatus("Erreur: " + data.error);
+  async function startSession() {
+    if (busy) return;
+    setBusy("start");
+    try {
+      const response = await fetch("/api/session/start", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok || !data.session) throw new Error(data.error || "Impossible de démarrer la session.");
+      setSessionId(data.session.id);
+      setSessionStartedAt(data.session.started_at);
+      notify(data.reused ? "Session active récupérée." : "Nouvelle session démarrée.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Impossible de démarrer la session.");
+    } finally {
+      setBusy(null);
     }
   }
 
   async function endSession() {
-    if (!confirm("Terminer la session en cours ?")) return;
-    await fetch("/api/session/start", { method: "DELETE" });
-    setSessionId(null);
-    setActiveQuestion(null);
-    startSession();
+    if (!sessionId || busy) return;
+    if (!confirm("Arrêter définitivement cette session ? La question en cours sera également clôturée.")) return;
+    setBusy("end");
+    try {
+      const response = await fetch("/api/session/start", { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Impossible d'arrêter la session.");
+      setSessionId(null);
+      setSessionStartedAt(null);
+      setActiveQuestion(null);
+      setAnswerCounts({});
+      setLeaderboard([]);
+      setChatMessages([]);
+      setMessageCount(0);
+      setSuccessRate(null);
+      notify("Session arrêtée. Aucune nouvelle session n'a été créée.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Impossible d'arrêter la session.");
+    } finally {
+      setBusy(null);
+    }
   }
 
-  async function extendTime(seconds: number) {
-    if (!activeQuestion) return;
-    await fetch("/api/question/extend", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question_id: activeQuestion.id, seconds }),
-    });
+  async function launchQuestion(event: React.FormEvent) {
+    event.preventDefault();
+    if (!sessionId || launching) return;
+    if (!text.trim() || !choiceA.trim() || !choiceB.trim()) {
+      notify("Question, réponse A et réponse B sont requises.");
+      return;
+    }
+    setLaunching(true);
+    try {
+      const response = await fetch("/api/question/launch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, text: text.trim(), choice_a: choiceA.trim(), choice_b: choiceB.trim(), choice_c: choiceC.trim(), choice_d: choiceD.trim(), correct_choice: correct }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.question) throw new Error(data.error || "Impossible de lancer la question.");
+      setActiveQuestion(data.question as Question);
+      setText(""); setChoiceA(""); setChoiceB(""); setChoiceC(""); setChoiceD(""); setCorrect("a");
+      notify("Question lancée en direct.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Impossible de lancer la question.");
+    } finally {
+      setLaunching(false);
+    }
   }
 
-  async function togglePause() {
-    if (!activeQuestion) return;
-    const endpoint = activeQuestion.paused_at ? "/api/question/resume" : "/api/question/pause";
-    await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question_id: activeQuestion.id }),
-    });
-  }
-
-  async function revealNow() {
-    if (!activeQuestion) return;
-    if (!confirm("Verrouiller les votes et révéler la bonne réponse maintenant ?")) return;
-    await fetch("/api/question/reveal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question_id: activeQuestion.id }),
-    });
+  async function questionAction(action: Exclude<BusyAction, "start" | "end" | null>, endpoint: string, body: Record<string, unknown>, success: string, confirmText?: string) {
+    if (!activeQuestion || busy) return;
+    if (confirmText && !confirm(confirmText)) return;
+    setBusy(action);
+    try {
+      const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Action impossible.");
+      notify(success);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Action impossible.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   function copyShareLink() {
-    const url = typeof window !== "undefined" ? `${window.location.origin}/` : "";
-    navigator.clipboard.writeText(url);
-    notify("Lien de l'overlay copié !");
+    if (typeof window === "undefined") return;
+    navigator.clipboard.writeText(`${window.location.origin}/`);
+    notify("Lien du live copié.");
   }
 
   const remaining = activeQuestion
     ? Math.max(0, Math.ceil(activeQuestion.duration_seconds - ((activeQuestion.paused_at ? new Date(activeQuestion.paused_at).getTime() : now) - new Date(activeQuestion.started_at).getTime()) / 1000))
     : 0;
-  const isLive = !!activeQuestion && remaining > 0;
-  const isPaused = !!activeQuestion?.paused_at;
-  const isRevealed = !!activeQuestion && !isLive;
-
-  const totalVotes = Object.values(answerCounts).reduce((a, b) => a + b, 0);
-  const sessionElapsed = sessionStartedAt ? Math.floor((now - new Date(sessionStartedAt).getTime()) / 1000) : 0;
+  const isPaused = Boolean(activeQuestion?.paused_at);
+  const isQuestionLive = Boolean(activeQuestion && remaining > 0 && !isPaused);
+  const isQuestionFinished = Boolean(activeQuestion && remaining <= 0);
+  const totalVotes = Object.values(answerCounts).reduce((sum, value) => sum + value, 0);
+  const sessionElapsed = sessionStartedAt ? Math.max(0, Math.floor((now - new Date(sessionStartedAt).getTime()) / 1000)) : 0;
   const sessionClock = `${String(Math.floor(sessionElapsed / 3600)).padStart(2, "0")}:${String(Math.floor((sessionElapsed % 3600) / 60)).padStart(2, "0")}:${String(sessionElapsed % 60).padStart(2, "0")}`;
-
-  const ringCircumference = 2 * Math.PI * 54;
-  const progress = activeQuestion ? Math.max(0, Math.min(1, remaining / activeQuestion.duration_seconds)) : 0;
+  const canLaunch = Boolean(sessionId && !launching && text.trim() && choiceA.trim() && choiceB.trim());
 
   return (
-    <div className="p-8 flex flex-col gap-6">
-      <div className="flex items-center justify-between -mt-2 mb-2 flex-wrap gap-3">
+    <div className="p-5 lg:p-8 flex flex-col gap-5 lg:gap-6">
+      <header className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-auth-text font-bold text-2xl">Session Live</h1>
-            {isLive && (
-              <span className="flex items-center gap-1.5 text-auth-live text-xs font-bold bg-auth-live/15 rounded-full px-2.5 py-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-auth-live animate-pulse" /> LIVE
-              </span>
-            )}
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-auth-text font-bold text-2xl lg:text-3xl tracking-tight">Session Live</h1>
+            {sessionId && <span className="inline-flex items-center gap-1.5 rounded-full bg-auth-live/15 px-2.5 py-1 text-[10px] font-bold text-auth-live"><span className="w-1.5 h-1.5 rounded-full bg-auth-live animate-pulse" /> SESSION EN COURS</span>}
           </div>
-          {sessionId && <p className="text-auth-muted text-sm mt-1">ID Session : #{sessionId.slice(0, 8)}</p>}
+          <p className="text-auth-muted text-sm mt-1">Pilotez votre quiz TikTok LIVE et suivez les interactions en temps réel.</p>
+          <p className="text-auth-mutedDim text-[10px] mt-2">{loadingSession ? "Recherche d'une session active…" : sessionId ? `Session #${sessionId.slice(0, 8).toUpperCase()} · démarrée à ${new Date(sessionStartedAt!).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "Aucune session active"}</p>
         </div>
-        <div className="flex items-center gap-2.5">
-          <a href="/" target="_blank" rel="noreferrer" className="flex items-center gap-1.5 border border-auth-border rounded-lg px-3.5 py-2 text-auth-text text-sm hover:bg-white/5 transition">
-            <ExternalLink size={14} /> Voir le live
-          </a>
-          <button onClick={copyShareLink} className="flex items-center gap-1.5 border border-auth-border rounded-lg px-3.5 py-2 text-auth-text text-sm hover:bg-white/5 transition">
-            <LinkIcon size={14} /> Partager le lien
-          </button>
-          <button onClick={endSession} className="flex items-center gap-1.5 bg-auth-live/15 text-auth-live rounded-lg px-3.5 py-2 text-sm font-semibold hover:bg-auth-live/25 transition">
-            <Square size={13} /> Arrêter la session
-          </button>
-        </div>
-      </div>
-
-      {status && <p className="text-auth-mutedDim text-xs -mt-4">{status}</p>}
-
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6 items-start">
-        <div className="flex flex-col gap-6">
-          <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-auth-border flex items-center justify-between">
-              <span className="text-auth-text font-bold text-xs uppercase tracking-wide">Question en cours</span>
-              {isLive && (
-                <span className="flex items-center gap-1.5 text-auth-live text-[10px] font-bold">
-                  <span className="w-1.5 h-1.5 rounded-full bg-auth-live animate-pulse" /> EN DIRECT
-                </span>
-              )}
-              {isPaused && <span className="text-auth-warn text-[10px] font-bold">EN PAUSE</span>}
-            </div>
-
-            {activeQuestion ? (
-              <div className="p-5 grid grid-cols-1 md:grid-cols-[1fr_180px] gap-6">
-                <div className="flex flex-col gap-4">
-                  <div>
-                    <p className="text-auth-mutedDim text-xs mb-1">Question</p>
-                    <p className="text-auth-text text-lg font-semibold">{activeQuestion.text}</p>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    {CHOICES.filter(({ key }) => activeQuestion[`choice_${key}`]).map(({ key, color }) => {
-                      const isCorrectChoice = activeQuestion.correct_choice === key;
-                      return (
-                        <div
-                          key={key}
-                          className="flex items-center gap-3 px-3 py-2.5 rounded-lg border"
-                          style={{
-                            borderColor: isRevealed && isCorrectChoice ? color : "#1D2030",
-                            background: isRevealed && isCorrectChoice ? `${color}14` : "transparent",
-                          }}
-                        >
-                          <span className="w-7 h-7 rounded flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: color }}>
-                            {key.toUpperCase()}
-                          </span>
-                          <span className="text-auth-text text-sm flex-1">{activeQuestion[`choice_${key}`]}</span>
-                          {isRevealed && isCorrectChoice && <span className="text-xs" style={{ color }}>✓</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="flex flex-col items-center gap-3">
-                  <p className="text-auth-mutedDim text-[10px] uppercase tracking-wide">Temps restant</p>
-                  <svg width="120" height="120" viewBox="0 0 120 120">
-                    <circle cx="60" cy="60" r="54" fill="none" stroke="#1D2030" strokeWidth="8" />
-                    <circle
-                      cx="60" cy="60" r="54" fill="none"
-                      stroke={isRevealed ? "#22C55E" : isPaused ? "#F5A623" : "#9B4DFF"}
-                      strokeWidth="8" strokeLinecap="round"
-                      strokeDasharray={ringCircumference}
-                      strokeDashoffset={ringCircumference * (1 - progress)}
-                      transform="rotate(-90 60 60)"
-                      style={{ transition: "stroke-dashoffset 0.2s linear" }}
-                    />
-                    <text x="60" y="66" textAnchor="middle" className="fill-auth-text" fontSize="28" fontWeight="bold">
-                      {isRevealed ? "✓" : remaining}
-                    </text>
-                  </svg>
-                  {!isRevealed && <span className="text-auth-mutedDim text-xs -mt-1">sec</span>}
-                  <div className="grid grid-cols-2 gap-2 w-full">
-                    <button onClick={() => extendTime(10)} disabled={isRevealed} className="border border-auth-border rounded-lg py-1.5 text-xs text-auth-text hover:bg-white/5 transition disabled:opacity-40">
-                      + 10 sec
-                    </button>
-                    <button onClick={() => extendTime(20)} disabled={isRevealed} className="border border-auth-border rounded-lg py-1.5 text-xs text-auth-text hover:bg-white/5 transition disabled:opacity-40">
-                      + 20 sec
-                    </button>
-                  </div>
-                  <button
-                    onClick={togglePause}
-                    disabled={isRevealed}
-                    className="w-full flex items-center justify-center gap-1.5 border border-auth-border rounded-lg py-1.5 text-xs text-auth-text hover:bg-white/5 transition disabled:opacity-40"
-                  >
-                    {isPaused ? <Play size={13} /> : <Pause size={13} />}
-                    {isPaused ? "Reprendre" : "Pause"}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="p-8 text-center text-auth-muted text-sm">
-                Aucune question en cours — prépare-en une ci-dessous.
-              </div>
-            )}
-          </div>
-
-          {activeQuestion && (
-            <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
-              <div className="px-5 py-3 border-b border-auth-border">
-                <span className="text-auth-text font-bold text-xs uppercase tracking-wide">Réponses en temps réel</span>
-              </div>
-              <div className="p-5 flex flex-col gap-3">
-                {CHOICES.filter(({ key }) => activeQuestion[`choice_${key}`]).map(({ key, color }) => {
-                  const count = answerCounts[key] ?? 0;
-                  const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
-                  return (
-                    <div key={key}>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white" style={{ background: color }}>{key.toUpperCase()}</span>
-                          <span className="text-auth-text text-sm">{activeQuestion[`choice_${key}`]}</span>
-                          {isRevealed && activeQuestion.correct_choice === key && <span className="text-xs" style={{ color }}>✓</span>}
-                        </div>
-                        <span className="text-auth-text text-sm font-bold">{pct}%</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-auth-bg overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color, transition: "width 0.3s" }} />
-                      </div>
-                      <p className="text-auth-mutedDim text-[10px] text-right mt-0.5">{count}</p>
-                    </div>
-                  );
-                })}
-                <div className="flex items-center justify-between pt-1 border-t border-auth-border text-sm">
-                  <span className="text-auth-mutedDim">Total réponses</span>
-                  <span className="text-auth-text font-bold">{totalVotes}</span>
-                </div>
-              </div>
-            </div>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <a href="/" target="_blank" rel="noreferrer" className="flex items-center gap-2 border border-auth-border bg-auth-panel rounded-lg px-3.5 py-2.5 text-auth-text text-xs font-semibold hover:bg-white/5"><ExternalLink size={14} />Voir le live</a>
+          <button onClick={copyShareLink} className="flex items-center gap-2 border border-auth-border bg-auth-panel rounded-lg px-3.5 py-2.5 text-auth-text text-xs font-semibold hover:bg-white/5"><LinkIcon size={14} />Partager le lien</button>
+          {sessionId ? (
+            <button disabled={busy !== null} onClick={endSession} className="flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs font-semibold bg-auth-live/15 text-auth-live hover:bg-auth-live/25 disabled:opacity-50">{busy === "end" ? <Loader2 size={14} className="animate-spin" /> : <Square size={14} />}Arrêter la session</button>
+          ) : (
+            <button disabled={busy !== null || loadingSession} onClick={startSession} className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold text-white bg-gradient-to-r from-[#4C6FFF] via-[#9B4DFF] to-[#FF3D8E] disabled:opacity-50">{busy === "start" ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}Démarrer une session</button>
           )}
+          <div className="hidden xl:block h-8 w-px bg-auth-border mx-1" />
+          <AdminTopControls />
+        </div>
+      </header>
 
-          <div className="bg-auth-panel border border-auth-border rounded-xl p-4 flex flex-wrap gap-2.5">
-            <button
-              onClick={() => composerRef.current?.scrollIntoView({ behavior: "smooth" })}
-              className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-white text-sm font-semibold"
-              style={{ background: "linear-gradient(90deg, #4C6FFF 0%, #9B4DFF 100%)" }}
-            >
-              <Play size={14} /> Question suivante
-            </button>
-            <button onClick={endSession} className="flex items-center gap-1.5 border border-auth-border rounded-lg px-4 py-2 text-auth-text text-sm hover:bg-white/5 transition">
-              <Square size={13} /> Fin de partie
-            </button>
-            <button onClick={togglePause} disabled={!activeQuestion || isRevealed} className="flex items-center gap-1.5 border border-auth-border rounded-lg px-4 py-2 text-auth-text text-sm hover:bg-white/5 transition disabled:opacity-40">
-              <Pause size={13} /> Pause générale
-            </button>
-            <button onClick={revealNow} disabled={!isLive} className="flex items-center gap-1.5 border border-auth-border rounded-lg px-4 py-2 text-auth-text text-sm hover:bg-white/5 transition disabled:opacity-40">
-              <Megaphone size={13} /> Annoncer résultat
-            </button>
-            <button onClick={() => notify("Effacer les réponses — bientôt disponible.")} className="flex items-center gap-1.5 border border-auth-border rounded-lg px-4 py-2 text-auth-text text-sm hover:bg-white/5 transition">
-              <Eraser size={13} /> Effacer réponses
-            </button>
-            <button onClick={() => notify("Paramètres de session — bientôt disponible.")} className="flex items-center gap-1.5 border border-auth-border rounded-lg px-4 py-2 text-auth-text text-sm hover:bg-white/5 transition">
-              <Settings size={13} /> Paramètres
-            </button>
-          </div>
+      {!loadingSession && !sessionId ? (
+        <section className="bg-auth-panel border border-auth-border rounded-xl px-6 py-10 text-center">
+          <div className="w-12 h-12 mx-auto rounded-xl bg-auth-blue/10 text-auth-blue flex items-center justify-center mb-4"><Radio size={22} /></div>
+          <h2 className="text-auth-text font-bold text-lg">Aucune session active</h2>
+          <p className="text-auth-muted text-xs mt-2 max-w-xl mx-auto">Démarrez une session lorsque vous êtes prêt à lancer votre quiz. Une session terminée reste clôturée et n'est plus recréée automatiquement.</p>
+          <button disabled={busy !== null} onClick={startSession} className="mt-5 inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-xs font-semibold text-white bg-gradient-to-r from-[#4C6FFF] via-[#9B4DFF] to-[#FF3D8E] disabled:opacity-50">{busy === "start" ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}Démarrer une nouvelle session</button>
+        </section>
+      ) : (
+        <>
+          <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+            <StatCard icon={Users2} color="#9B4DFF" label="Joueurs identifiés" value={String(leaderboard.length)} helper="Présents dans le classement actuel" />
+            <StatCard icon={MessageCircle} color="#3DDCFF" label="Messages chat" value={String(messageCount)} helper="Messages TikTok enregistrés" />
+            <StatCard icon={CheckCircle2} color="#22C55E" label="Réponses reçues" value={String(totalVotes)} helper={activeQuestion ? "Sur la question en cours" : "En attente d'une question"} />
+            <StatCard icon={BarChart3} color="#F5A623" label="Taux de réussite" value={successRate == null ? "—" : `${successRate}%`} helper={successRate == null ? "En attente des premières réponses" : "Sur la session en cours"} />
+            <StatCard icon={Clock3} color="#4C6FFF" label="Durée de session" value={sessionClock} helper="Depuis le démarrage de la session" />
+          </section>
 
-          <form ref={composerRef} onSubmit={launchQuestion} className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden scroll-mt-6">
-            <div className="px-5 py-3 border-b border-auth-border">
-              <span className="text-auth-text font-bold text-xs uppercase tracking-wide">Prochaine question</span>
-            </div>
-            <div className="p-5 flex flex-col gap-4">
-              <input
-                required
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Dans quel pays se trouve le Machu Picchu ?"
-                className="bg-auth-bg border border-auth-border rounded-lg px-4 py-3 text-auth-text outline-none focus:border-auth-blue placeholder:text-auth-mutedDim"
-              />
-              <div className="grid grid-cols-2 gap-3">
-                {CHOICES.map(({ key, color }) => (
-                  <div key={key} className="bg-auth-bg border border-auth-border rounded-lg overflow-hidden">
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-auth-border">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white" style={{ background: color }}>{key.toUpperCase()}</span>
-                        <span className="text-auth-mutedDim text-[10px] uppercase tracking-wide">Réponse {key.toUpperCase()}</span>
+          <section className="grid grid-cols-1 xl:grid-cols-[1fr_330px] gap-4 items-start">
+            <div className="flex flex-col gap-4">
+              <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between gap-3">
+                  <div><p className="text-auth-text text-sm font-bold">Question en cours</p><p className="text-auth-muted text-[10px] mt-0.5">État réel de la diffusion</p></div>
+                  {activeQuestion ? <span className={`rounded-full px-2.5 py-1 text-[9px] font-bold ${isPaused ? "bg-[#F5A623]/15 text-[#F5A623]" : isQuestionLive ? "bg-auth-live/15 text-auth-live" : "bg-auth-blue/15 text-auth-blue"}`}>{isPaused ? "EN PAUSE" : isQuestionLive ? "EN DIRECT" : "TEMPS ÉCOULÉ"}</span> : <span className="rounded-full bg-white/5 px-2.5 py-1 text-[9px] font-bold text-auth-muted">EN ATTENTE</span>}
+                </div>
+                {activeQuestion ? (
+                  <div className="p-4 lg:p-5 grid grid-cols-1 lg:grid-cols-[1fr_190px] gap-5">
+                    <div>
+                      <p className="text-auth-text text-lg font-bold mb-4">{activeQuestion.text}</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                        {CHOICES.filter(({ key }) => activeQuestion[`choice_${key}`]).map(({ key, label, color }) => {
+                          const count = answerCounts[key] ?? 0;
+                          const pct = totalVotes ? Math.round((count / totalVotes) * 100) : 0;
+                          const correctAnswer = activeQuestion.correct_choice === key && isQuestionFinished;
+                          return <div key={key} className="rounded-lg border p-3" style={{ borderColor: correctAnswer ? color : "#1D2030", background: correctAnswer ? `${color}12` : "transparent" }}><div className="flex items-center gap-2.5"><span className="w-7 h-7 rounded-md flex items-center justify-center text-white text-xs font-bold" style={{ background: color }}>{label}</span><span className="text-auth-text text-xs font-semibold flex-1">{activeQuestion[`choice_${key}`]}</span><span className="text-auth-muted text-[10px]">{count} · {pct}%</span></div></div>;
+                        })}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setCorrect(key)}
-                        className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded transition ${correct === key ? "bg-auth-positive text-white" : "text-auth-mutedDim border border-auth-border"}`}
-                      >
-                        {correct === key ? "✓ Correcte" : "Marquer"}
-                      </button>
                     </div>
-                    <input
-                      required={key === "a" || key === "b"}
-                      value={choiceValues[key]}
-                      onChange={(e) => choiceSetters[key](e.target.value)}
-                      placeholder={key === "a" || key === "b" ? "Requis" : "Optionnel"}
-                      className="w-full bg-transparent px-3 py-2.5 text-auth-text text-sm outline-none placeholder:text-auth-mutedDim"
-                    />
-                  </div>
-                ))}
-              </div>
-              <button
-                disabled={launching || isLive}
-                className="rounded-lg py-3 font-semibold text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ background: isLive ? "#1D2030" : "linear-gradient(90deg, #4C6FFF 0%, #9B4DFF 100%)" }}
-              >
-                {isLive ? "En attente de la fin de la question en cours…" : launching ? "Envoi…" : "▶ Lancer maintenant"}
-              </button>
-            </div>
-          </form>
-
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            {[
-              { label: "Joueurs connectés", value: leaderboard.length > 0 ? String(leaderboard.length) : "0" },
-              { label: "Spectateurs", value: "—" },
-              { label: "Messages dans le chat", value: String(messageCount) },
-              { label: "Taux de bonnes réponses", value: successRate !== null ? `${successRate}%` : "—" },
-              { label: "Durée de la session", value: sessionClock },
-            ].map((s) => (
-              <div key={s.label} className="bg-auth-panel border border-auth-border rounded-xl p-3.5">
-                <p className="text-auth-text text-lg font-bold">{s.value}</p>
-                <p className="text-auth-mutedDim text-[10px] uppercase tracking-wide mt-0.5">{s.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden flex flex-col" style={{ height: 460 }}>
-            <div className="px-5 py-3 border-b border-auth-border flex items-center justify-between">
-              <span className="text-auth-text font-bold text-xs uppercase tracking-wide">Chat live</span>
-              <span className="flex items-center gap-1 text-auth-positive text-[10px] font-bold">
-                <span className="w-1.5 h-1.5 rounded-full bg-auth-positive" /> Actif
-              </span>
-            </div>
-            <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
-              {chatMessages.length === 0 && (
-                <p className="text-auth-mutedDim text-xs text-center py-6">En attente des premiers messages…</p>
-              )}
-              {chatMessages.map((m) => (
-                <div key={m.id} className="flex items-start gap-2.5">
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-auth-blue to-auth-pink flex items-center justify-center text-white text-[10px] font-bold shrink-0">
-                    {m.tiktok_user.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-auth-text text-xs font-semibold">@{m.tiktok_user}</span>
-                      {m.is_vote && (
-                        <span className="text-[9px] font-bold text-white rounded px-1" style={{ background: CHOICES.find((c) => c.key === m.choice)?.color }}>
-                          {m.choice?.toUpperCase()}
-                        </span>
-                      )}
-                      <span className="text-auth-mutedDim text-[10px] ml-auto">
-                        {new Date(m.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
-                      </span>
+                    <div className="rounded-xl border border-auth-border bg-auth-bg/40 p-4 flex flex-col justify-center items-center text-center">
+                      <TimerReset size={20} className="text-auth-blue mb-2" />
+                      <p className="text-auth-mutedDim text-[9px] uppercase tracking-[0.14em] font-bold">Temps restant</p>
+                      <p className="text-auth-text text-3xl font-bold mt-1">{isPaused ? "PAUSE" : `${remaining}s`}</p>
+                      <p className="text-auth-muted text-[10px] mt-1">{totalVotes} réponse{totalVotes > 1 ? "s" : ""}</p>
                     </div>
-                    <p className="text-auth-muted text-xs break-words">{m.message}</p>
                   </div>
-                </div>
-              ))}
-              <div ref={chatEndRef} />
-            </div>
-            <div className="border-t border-auth-border p-3 flex items-center gap-2">
-              <input
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    notify("Envoi de messages dans le chat TikTok non disponible depuis ce panneau.");
-                    (e.target as HTMLInputElement).value = "";
-                  }
-                }}
-                placeholder="Envoyer un message..."
-                className="flex-1 bg-auth-bg border border-auth-border rounded-lg px-3 py-2 text-xs text-auth-text outline-none placeholder:text-auth-mutedDim"
-              />
-              <button onClick={() => notify("Emoji — bientôt disponible.")} className="text-auth-mutedDim hover:text-auth-text transition">
-                <Smile size={16} />
-              </button>
-              <button
-                onClick={() => notify("Envoi de messages dans le chat TikTok non disponible depuis ce panneau.")}
-                className="text-auth-blue hover:text-auth-text transition"
-              >
-                <Send size={16} />
-              </button>
-            </div>
-            <div className="flex items-center justify-between px-4 py-2 border-t border-auth-border">
-              <span className="text-auth-mutedDim text-[11px]">Mode modération</span>
-              <button onClick={() => notify("Mode modération — bientôt disponible.")} className="w-8 h-4.5 rounded-full bg-auth-border relative transition">
-                <span className="absolute left-0.5 top-0.5 w-3.5 h-3.5 rounded-full bg-auth-mutedDim" />
-              </button>
-            </div>
-          </div>
+                ) : <div className="px-5 py-8 text-center"><Radio size={22} className="mx-auto text-auth-mutedDim mb-2" /><p className="text-auth-text text-sm font-semibold">Prêt pour une question</p><p className="text-auth-muted text-[10px] mt-1">Préparez la prochaine question ci-dessous puis lancez-la.</p></div>}
+              </div>
 
-          <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-auth-border flex items-center justify-between">
-              <span className="text-auth-text font-bold text-xs uppercase tracking-wide">Joueurs actifs</span>
-              <span className="text-auth-mutedDim text-[11px]">{leaderboard.length} connectés</span>
-            </div>
-            <div className="flex flex-col">
-              {leaderboard.length === 0 && <p className="text-auth-mutedDim text-xs text-center py-6">Pas encore de joueurs.</p>}
-              {leaderboard.map((row, i) => (
-                <div key={row.tiktok_user} className="flex items-center gap-3 px-5 py-2.5 border-b border-auth-border last:border-b-0">
-                  <span className="text-auth-mutedDim text-xs w-4">{i + 1}</span>
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-auth-blue to-auth-pink flex items-center justify-center text-white text-[10px] font-bold shrink-0">
-                    {row.tiktok_user.slice(0, 2).toUpperCase()}
-                  </div>
-                  <span className="text-auth-text text-xs flex-1 truncate">@{row.tiktok_user}</span>
-                  {i === 0 && <Crown size={13} className="text-auth-warn" />}
-                  <span className="text-auth-text text-xs font-bold font-mono">{row.total_points} pts</span>
+              <div className="bg-auth-panel border border-auth-border rounded-xl p-3 flex items-center gap-2 flex-wrap">
+                <button disabled={!activeQuestion || busy !== null || isQuestionFinished} onClick={() => questionAction("pause", activeQuestion?.paused_at ? "/api/question/resume" : "/api/question/pause", { question_id: activeQuestion?.id }, activeQuestion?.paused_at ? "Question reprise." : "Question mise en pause.")} className="inline-flex items-center gap-2 border border-auth-border rounded-lg px-3.5 py-2 text-xs font-semibold text-auth-text disabled:opacity-35 hover:bg-white/5">{busy === "pause" ? <Loader2 size={13} className="animate-spin" /> : activeQuestion?.paused_at ? <Play size={13} /> : <Pause size={13} />}{activeQuestion?.paused_at ? "Reprendre" : "Mettre en pause"}</button>
+                <button disabled={!activeQuestion || busy !== null || isQuestionFinished} onClick={() => questionAction("extend", "/api/question/extend", { question_id: activeQuestion?.id, seconds: 10 }, "+10 secondes ajoutées.")} className="inline-flex items-center gap-2 border border-auth-border rounded-lg px-3.5 py-2 text-xs font-semibold text-auth-text disabled:opacity-35 hover:bg-white/5">{busy === "extend" ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}+10 sec</button>
+                <button disabled={!activeQuestion || busy !== null || isQuestionFinished} onClick={() => questionAction("reveal", "/api/question/reveal", { question_id: activeQuestion?.id }, "Votes verrouillés et réponse révélée.", "Révéler la bonne réponse maintenant et verrouiller les votes ?")} className="inline-flex items-center gap-2 border border-auth-border rounded-lg px-3.5 py-2 text-xs font-semibold text-auth-text disabled:opacity-35 hover:bg-white/5">{busy === "reveal" ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}Révéler la réponse</button>
+                <span className="ml-auto text-[10px] text-auth-mutedDim">Les actions indisponibles sont désactivées automatiquement.</span>
+              </div>
+
+              <form onSubmit={launchQuestion} className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between gap-3 flex-wrap">
+                  <div><p className="text-auth-text text-sm font-bold">Prochaine question</p><p className="text-auth-muted text-[10px] mt-0.5">Saisie manuelle pour le moment.</p></div>
+                  <button type="button" disabled className="inline-flex items-center gap-2 rounded-lg border border-auth-blue/30 bg-gradient-to-r from-auth-blue/10 via-[#9B4DFF]/10 to-[#FF3D8E]/10 px-3 py-2 text-[10px] font-semibold text-auth-text opacity-80 cursor-not-allowed shadow-[0_0_0_1px_rgba(76,111,255,0.04)]"><BookOpen size={13} className="text-auth-blue" /><span>Choisir dans la Banque</span><span className="rounded-full border border-auth-blue/20 bg-auth-blue/10 text-auth-blue px-1.5 py-0.5 text-[8px] uppercase tracking-wide">Bientôt</span></button>
                 </div>
-              ))}
+                <div className="p-4 space-y-3">
+                  <div className="rounded-lg border border-auth-border bg-auth-bg/35 px-3 py-2 flex items-center gap-2 text-[10px] text-auth-muted"><CheckCircle2 size={13} className="text-auth-blue shrink-0" /><span>La question ainsi que les réponses <strong className="text-auth-text font-semibold">A et B</strong> sont obligatoires. C et D restent optionnelles.</span></div>
+                  <input disabled={!sessionId || launching} value={text} onChange={(event) => setText(event.target.value)} placeholder="Saisissez la question…" className="w-full bg-auth-bg border border-auth-border rounded-lg px-3.5 py-3 text-xs text-auth-text outline-none focus:border-auth-blue disabled:opacity-50" />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {CHOICES.map(({ key, label, color }) => <div key={key} className="bg-auth-bg border border-auth-border rounded-lg px-3 py-2.5"><div className="flex items-center gap-2 mb-2"><button type="button" onClick={() => setCorrect(key)} className="w-6 h-6 rounded flex items-center justify-center text-white text-[10px] font-bold" style={{ background: color }}>{label}</button><span className="text-[9px] uppercase tracking-[0.12em] font-bold text-auth-mutedDim">Réponse {label}</span>{correct === key && <span className="ml-auto text-[9px] font-bold text-auth-positive">CORRECTE</span>}</div><input disabled={!sessionId || launching} value={choiceValues[key]} onChange={(event) => choiceSetters[key](event.target.value)} placeholder={key === "a" || key === "b" ? "Requis" : "Optionnel"} className="w-full bg-transparent text-auth-text text-xs outline-none placeholder:text-auth-mutedDim disabled:opacity-50" /></div>)}
+                  </div>
+                  <button disabled={!canLaunch} className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-xs font-bold text-white bg-gradient-to-r from-[#4C6FFF] via-[#9B4DFF] to-[#FF3D8E] transition-opacity disabled:opacity-30 disabled:cursor-not-allowed">{launching ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}{activeQuestion ? "Lancer la question suivante" : "Lancer la question"}</button>
+                </div>
+              </form>
             </div>
-            <button onClick={() => notify("Classement complet — bientôt disponible.")} className="w-full py-3 text-auth-blue text-xs font-semibold hover:bg-white/5 transition border-t border-auth-border">
-              Voir le classement complet
-            </button>
-          </div>
-        </div>
-      </div>
+
+            <aside className="flex flex-col gap-4">
+              <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between"><div><p className="text-auth-text text-sm font-bold">Chat live</p><p className="text-auth-muted text-[10px] mt-0.5">Commentaires TikTok synchronisés</p></div><span className="inline-flex items-center gap-1.5 text-[9px] font-bold text-auth-positive"><span className="w-1.5 h-1.5 rounded-full bg-auth-positive" />ACTIF</span></div>
+                <div className="max-h-[330px] overflow-y-auto p-3 space-y-2 min-h-[180px]">{chatMessages.length ? chatMessages.map((message) => <div key={message.id} className="rounded-lg bg-auth-bg border border-auth-border px-3 py-2"><div className="flex items-center justify-between gap-2"><span className="text-auth-blue text-[10px] font-semibold">@{message.tiktok_user}</span><span className="text-auth-mutedDim text-[8px]">{new Date(message.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span></div><p className="text-auth-text text-[11px] mt-1 break-words">{message.message}</p></div>) : <div className="h-[160px] flex flex-col items-center justify-center text-center"><MessageCircle size={20} className="text-auth-mutedDim mb-2" /><p className="text-auth-text text-xs font-semibold">Chat encore silencieux</p><p className="text-auth-muted text-[9px] mt-1">Les commentaires apparaîtront automatiquement.</p></div>}</div>
+              </div>
+
+              <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between"><div><p className="text-auth-text text-sm font-bold">Top joueurs</p><p className="text-auth-muted text-[10px] mt-0.5">Classement de la session</p></div><Crown size={15} className="text-[#F5A623]" /></div>
+                <div className="p-3 space-y-2">{leaderboard.length ? leaderboard.map((player, index) => <div key={player.tiktok_user} className="flex items-center gap-2.5 rounded-lg bg-auth-bg border border-auth-border px-3 py-2"><span className="w-6 h-6 rounded-full bg-auth-blue/15 text-auth-blue flex items-center justify-center text-[9px] font-bold">{index + 1}</span><span className="text-auth-text text-[11px] font-semibold flex-1 truncate">{player.tiktok_user}</span><span className="text-auth-blue text-[10px] font-bold">{player.total_points} pts</span></div>) : <div className="py-6 text-center"><Users2 size={18} className="mx-auto text-auth-mutedDim mb-2" /><p className="text-auth-muted text-[10px]">Le classement apparaîtra après les premières réponses.</p></div>}</div>
+              </div>
+            </aside>
+          </section>
+        </>
+      )}
+
+      {loadingSession && <div className="bg-auth-panel border border-auth-border rounded-xl py-12 flex items-center justify-center gap-2 text-auth-muted text-xs"><RefreshCw size={14} className="animate-spin" />Chargement de la session…</div>}
     </div>
   );
 }
