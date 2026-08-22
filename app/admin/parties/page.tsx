@@ -1,421 +1,222 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Search,
-  Filter,
-  RefreshCw,
-  Gamepad2,
-  Radio,
-  CalendarClock,
   CheckCircle2,
-  Eye,
-  Pencil,
   Copy,
-  Trash2,
-  ChevronLeft,
-  ChevronRight,
-  Play,
+  Eye,
+  Gamepad2,
+  HelpCircle,
+  Radio,
+  RefreshCw,
+  Search,
+  Target,
+  Users,
+  type LucideIcon,
 } from "lucide-react";
 import { AdminTopControls } from "@/components/AdminTopControls";
-import { useAdminToast } from "@/components/AdminToastContext";
+import { supabaseBrowser } from "@/lib/supabase";
 
-type Status = "live" | "scheduled" | "finished" | "draft";
+type SessionStatus = "active" | "ended";
+type Tab = "all" | SessionStatus;
+type SessionRow = { id: string; started_at: string; ended_at: string | null; status: SessionStatus };
+type QuestionRow = { id: string; session_id: string; text: string; status: "active" | "closed"; started_at: string };
+type LeaderboardRow = { session_id: string; tiktok_user: string };
+type PartyView = SessionRow & { questions: QuestionRow[]; players: number; firstQuestion: string | null; activeQuestion: string | null };
+type MetricCardProps = { label: string; value: string; helper: string; icon: LucideIcon; color: string };
 
-type Party = {
-  id: string;
-  title: string;
-  emoji: string;
-  category: string;
-  categoryColor: string;
-  status: Status;
-  date: string;
-  time: string;
-  questions: number;
-  players: number | null;
-  spectators: number | null;
-  host: string;
-};
+const STATUS_LABEL: Record<SessionStatus, string> = { active: "En direct", ended: "Terminée" };
+const STATUS_COLOR: Record<SessionStatus, string> = { active: "#EF4444", ended: "#22C55E" };
 
-const STATUS_LABEL: Record<Status, string> = {
-  live: "En direct",
-  scheduled: "Programmée",
-  finished: "Terminée",
-  draft: "Brouillon",
-};
+function MetricCard({ label, value, helper, icon: Icon, color }: MetricCardProps) {
+  return (
+    <div className="rounded-xl border border-auth-border bg-auth-panel p-4 min-w-0">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${color}18`, color }}><Icon size={18} /></div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-auth-mutedDim truncate">{label}</p>
+          <p className="mt-1 text-2xl font-bold text-auth-text">{value}</p>
+          <p className="mt-1 text-[11px] text-auth-muted">{helper}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-const STATUS_COLOR: Record<Status, string> = {
-  live: "#EF4444",
-  scheduled: "#4C6FFF",
-  finished: "#22C55E",
-  draft: "#6B7086",
-};
+function EmptyState({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="px-5 py-10 flex flex-col items-center justify-center text-center">
+      <div className="w-11 h-11 rounded-xl border border-auth-border bg-white/[0.025] flex items-center justify-center mb-3"><Gamepad2 size={18} className="text-auth-mutedDim" /></div>
+      <p className="text-sm font-semibold text-auth-text">{title}</p>
+      <p className="text-[11px] text-auth-muted mt-1 max-w-md leading-5">{description}</p>
+    </div>
+  );
+}
 
-// Mock catalog — no "parties" backend yet (each live question is created ad hoc
-// from Sessions live). Wired for real once a game-catalog table exists.
-const PARTIES: Party[] = [
-  { id: "QL-89271", title: "Culture G. : Spécial Japon", emoji: "🗾", category: "Culture générale", categoryColor: "#4C6FFF", status: "live", date: "22/05/2025", time: "21:00", questions: 20, players: 823, spectators: 2853, host: "Admin" },
-  { id: "QL-89270", title: "Sport Mania : Édition Finale", emoji: "⚽", category: "Sport", categoryColor: "#22C55E", status: "scheduled", date: "22/05/2025", time: "20:00", questions: 20, players: 612, spectators: 1234, host: "Admin" },
-  { id: "QL-89269", title: "Cinéma Cultes des années 90", emoji: "🎬", category: "Cinéma", categoryColor: "#9B4DFF", status: "scheduled", date: "22/05/2025", time: "19:00", questions: 20, players: 542, spectators: 1892, host: "Marie D." },
-  { id: "QL-89268", title: "Histoire : Les grandes dates", emoji: "📜", category: "Histoire", categoryColor: "#F5A623", status: "scheduled", date: "22/05/2025", time: "18:00", questions: 20, players: 431, spectators: 1532, host: "Thomas L." },
-  { id: "QL-89267", title: "Géographie : Tour du monde", emoji: "🌍", category: "Géographie", categoryColor: "#3DDCFF", status: "finished", date: "22/05/2025", time: "17:00", questions: 20, players: 398, spectators: 1128, host: "Admin" },
-  { id: "QL-89266", title: "Musique : Années 80", emoji: "🎵", category: "Musique", categoryColor: "#FF3D8E", status: "finished", date: "21/05/2025", time: "21:00", questions: 20, players: 654, spectators: 1840, host: "Julie R." },
-  { id: "QL-89265", title: "Science & Nature", emoji: "🔬", category: "Sciences", categoryColor: "#14B8A6", status: "draft", date: "—", time: "—", questions: 20, players: null, spectators: null, host: "Admin" },
-  { id: "QL-89264", title: "Spécial Noël : Quiz Festif", emoji: "🎄", category: "Culture générale", categoryColor: "#4C6FFF", status: "finished", date: "20/05/2025", time: "20:00", questions: 20, players: 712, spectators: 2102, host: "Marie D." },
-  { id: "QL-89263", title: "Tech & Innovation", emoji: "💻", category: "Technologie", categoryColor: "#6366F1", status: "scheduled", date: "23/05/2025", time: "20:00", questions: 20, players: null, spectators: null, host: "Thomas L." },
-  { id: "QL-89262", title: "Animaux : Le règne sauvage", emoji: "🦁", category: "Nature", categoryColor: "#84CC16", status: "finished", date: "19/05/2025", time: "18:00", questions: 20, players: 521, spectators: 1456, host: "Admin" },
-];
+function formatDate(value: string) {
+  return new Date(value).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 
-const UPCOMING = [
-  { day: "VEN", date: "23", month: "MAI", title: "Tech & Innovation", time: "20:00", questions: 20 },
-  { day: "SAM", date: "24", month: "MAI", title: "Culture Générale : Le Quiz du Week-end", time: "16:00", questions: 20 },
-  { day: "DIM", date: "25", month: "MAI", title: "Sport : Légendes du Foot", time: "18:00", questions: 20 },
-];
+function formatDuration(start: string, end: string | null) {
+  const from = new Date(start).getTime();
+  const to = end ? new Date(end).getTime() : Date.now();
+  const totalMinutes = Math.max(0, Math.floor((to - from) / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours} h ${String(minutes).padStart(2, "0")} min` : `${minutes} min`;
+}
 
-const TABS: { key: "all" | Status; label: string }[] = [
-  { key: "all", label: "Toutes" },
-  { key: "live", label: "En direct" },
-  { key: "scheduled", label: "Programmées" },
-  { key: "finished", label: "Terminées" },
-  { key: "draft", label: "Brouillons" },
-];
+function shortId(id: string) { return `#${id.slice(0, 8).toUpperCase()}`; }
+function compactUuid(id: string) { return `${id.slice(0, 8)}…${id.slice(-6)}`; }
 
 export default function PartiesPage() {
-  const notify = useAdminToast();
-  const [tab, setTab] = useState<"all" | Status>("all");
-  const [category, setCategory] = useState("all");
+  const db = useMemo(() => supabaseBrowser(), []);
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [questions, setQuestions] = useState<QuestionRow[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState(PARTIES[0].id);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const categories = useMemo(() => Array.from(new Set(PARTIES.map((p) => p.category))), []);
+  async function loadData() {
+    setLoading(true);
+    const [{ data: sessionRows }, { data: questionRows }, { data: leaderboardRows }] = await Promise.all([
+      db.from("sessions").select("id,started_at,ended_at,status").order("started_at", { ascending: false }).limit(250),
+      db.from("questions").select("id,session_id,text,status,started_at").order("started_at", { ascending: true }).limit(5000),
+      db.from("leaderboard").select("session_id,tiktok_user").limit(20000),
+    ]);
+    const nextSessions = (sessionRows ?? []) as SessionRow[];
+    setSessions(nextSessions);
+    setQuestions((questionRows ?? []) as QuestionRow[]);
+    setLeaderboard((leaderboardRows ?? []) as LeaderboardRow[]);
+    setSelectedId((current) => current && nextSessions.some((s) => s.id === current) ? current : nextSessions[0]?.id ?? null);
+    setLastUpdated(new Date());
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadData();
+    const interval = window.setInterval(loadData, 15000);
+    const channel = db.channel("parties-v2-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, loadData)
+      .on("postgres_changes", { event: "*", schema: "public", table: "questions" }, loadData)
+      .on("postgres_changes", { event: "*", schema: "public", table: "leaderboard" }, loadData)
+      .subscribe();
+    return () => { window.clearInterval(interval); db.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db]);
+
+  const parties = useMemo<PartyView[]>(() => {
+    const questionsBySession = new Map<string, QuestionRow[]>();
+    questions.forEach((q) => { const rows = questionsBySession.get(q.session_id) ?? []; rows.push(q); questionsBySession.set(q.session_id, rows); });
+    const playersBySession = new Map<string, Set<string>>();
+    leaderboard.forEach((row) => { const players = playersBySession.get(row.session_id) ?? new Set<string>(); players.add(row.tiktok_user); playersBySession.set(row.session_id, players); });
+    return sessions.map((session) => {
+      const sessionQuestions = questionsBySession.get(session.id) ?? [];
+      return { ...session, questions: sessionQuestions, players: playersBySession.get(session.id)?.size ?? 0, firstQuestion: sessionQuestions[0]?.text ?? null, activeQuestion: sessionQuestions.find((q) => q.status === "active")?.text ?? null };
+    });
+  }, [sessions, questions, leaderboard]);
+
+  const stats = useMemo(() => ({
+    total: parties.length,
+    active: parties.filter((p) => p.status === "active").length,
+    ended: parties.filter((p) => p.status === "ended").length,
+    questions: parties.reduce((sum, p) => sum + p.questions.length, 0),
+  }), [parties]);
 
   const filtered = useMemo(() => {
-    return PARTIES.filter((p) => {
-      if (tab !== "all" && p.status !== tab) return false;
-      if (category !== "all" && p.category !== category) return false;
-      if (search && !`${p.title} ${p.id}`.toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
+    const query = search.trim().toLowerCase();
+    return parties.filter((party) => {
+      if (tab !== "all" && party.status !== tab) return false;
+      if (!query) return true;
+      return [party.id, party.firstQuestion ?? "", party.activeQuestion ?? ""].join(" ").toLowerCase().includes(query);
     });
-  }, [tab, category, search]);
+  }, [parties, search, tab]);
 
-  const selected = PARTIES.find((p) => p.id === selectedId) ?? PARTIES[0];
+  const selected = parties.find((p) => p.id === selectedId) ?? parties[0] ?? null;
 
-  const counts = {
-    total: PARTIES.length,
-    live: PARTIES.filter((p) => p.status === "live").length,
-    scheduled: PARTIES.filter((p) => p.status === "scheduled").length,
-    finished: PARTIES.filter((p) => p.status === "finished").length,
-  };
+  async function copySessionId(id: string) {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopiedId(id);
+      window.setTimeout(() => setCopiedId((current) => current === id ? null : current), 1600);
+    } catch {}
+  }
 
   return (
-    <div className="p-8 flex flex-col gap-6">
-      {/* Page header */}
-      <div className="flex items-center justify-between -mt-2 mb-2">
+    <div className="p-5 lg:p-8 flex flex-col gap-5 lg:gap-6">
+      <header className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
         <div>
-          <h1 className="text-auth-text font-bold text-2xl">Parties</h1>
-          <p className="text-auth-muted text-sm">Gérez vos sessions et parties de quiz.</p>
+          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-auth-text">Parties</h1>
+          <p className="text-sm text-auth-muted mt-1">Consultez les sessions réellement enregistrées et leur activité.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-auth-mutedDim" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher..."
-              className="bg-auth-panel border border-auth-border rounded-lg pl-9 pr-3 py-2 text-sm text-auth-text outline-none focus:border-auth-blue w-52 placeholder:text-auth-mutedDim"
-            />
-          </div>
-          <button
-            onClick={() => notify("Filtres avancés — bientôt disponible.")}
-            className="flex items-center gap-1.5 border border-auth-border rounded-lg px-3 py-2 text-auth-text text-sm hover:bg-white/5 transition"
-          >
-            <Filter size={14} /> Filtres
-          </button>
-          <AdminTopControls />
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="relative"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-auth-mutedDim" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ID ou question..." className="w-56 rounded-lg border border-auth-border bg-auth-panel py-2.5 pl-9 pr-3 text-xs text-auth-text outline-none placeholder:text-auth-mutedDim focus:border-auth-blue" /></div>
+          <button onClick={loadData} className="inline-flex items-center gap-2 rounded-lg border border-auth-border bg-auth-panel px-3.5 py-2.5 text-xs font-semibold text-auth-text hover:bg-white/5 transition"><RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Actualiser</button>
+          <Link href="/admin/sessions-live" className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs font-semibold text-white" style={{ background: "linear-gradient(135deg, #4C6FFF 0%, #9B4DFF 52%, #FF3D8E 100%)" }}><Gamepad2 size={15} /> Nouvelle session</Link>
+          <div className="hidden xl:block h-8 w-px bg-auth-border mx-1" /><AdminTopControls />
         </div>
-      </div>
+      </header>
 
-      {/* Stat cards — mock, no game-catalog backend yet */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { icon: Gamepad2, label: "Parties totales", value: String(counts.total > 0 ? 128 : 0), delta: "+12% vs mois dernier", color: "#9B4DFF" },
-          { icon: Radio, label: "En direct", value: String(5), delta: "+25% vs hier", color: "#22C55E" },
-          { icon: CalendarClock, label: "Programmées", value: String(18), delta: "+8% vs hier", color: "#4C6FFF" },
-          { icon: CheckCircle2, label: "Terminées", value: String(105), delta: "+10% vs mois dernier", color: "#3DDCFF" },
-        ].map(({ icon: Icon, label, value, delta, color }) => (
-          <div key={label} className="bg-auth-panel border border-auth-border rounded-xl p-4">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3" style={{ background: `${color}22`, color }}>
-              <Icon size={17} />
+      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <MetricCard label="Parties totales" value={stats.total.toLocaleString("fr-FR")} helper="Sessions enregistrées dans Supabase" icon={Gamepad2} color="#9B4DFF" />
+        <MetricCard label="En direct" value={stats.active.toLocaleString("fr-FR")} helper={stats.active ? "Session actuellement active" : "Aucune session active"} icon={Radio} color="#EF4444" />
+        <MetricCard label="Terminées" value={stats.ended.toLocaleString("fr-FR")} helper="Sessions clôturées" icon={CheckCircle2} color="#22C55E" />
+        <MetricCard label="Questions enregistrées" value={stats.questions.toLocaleString("fr-FR")} helper="Questions rattachées aux sessions" icon={Target} color="#4C6FFF" />
+      </section>
+
+      <section className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_360px] gap-4 items-start">
+        <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
+          <div className="px-4 pt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-1">{([["all","Toutes"],["active","En direct"],["ended","Terminées"]] as Array<[Tab,string]>).map(([key,label]) => <button key={key} onClick={() => setTab(key)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${tab === key ? "bg-auth-blue/15 text-auth-text" : "text-auth-muted hover:text-auth-text"}`}>{label}</button>)}</div>
+            <div className="text-[10px] text-auth-mutedDim">{lastUpdated ? `Mis à jour à ${lastUpdated.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "Chargement…"}</div>
+          </div>
+          <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between gap-3"><p className="text-[11px] text-auth-muted">{filtered.length} session{filtered.length > 1 ? "s" : ""} affichée{filtered.length > 1 ? "s" : ""}</p>{(tab !== "all" || search) && <button onClick={() => { setTab("all"); setSearch(""); }} className="inline-flex items-center gap-1.5 text-[11px] text-auth-muted hover:text-auth-text transition"><RefreshCw size={11} /> Réinitialiser</button>}</div>
+
+          {loading && parties.length === 0 ? <EmptyState title="Chargement des parties" description="Lecture des sessions, questions et joueurs depuis Supabase." /> : filtered.length === 0 ? <EmptyState title="Aucune partie trouvée" description="Aucune session ne correspond aux filtres actuels. Modifiez la recherche ou réinitialisez les filtres." /> : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-left table-fixed">
+                <colgroup><col className="w-[110px]" /><col /><col className="w-[115px]" /><col className="w-[155px]" /><col className="w-[80px]" /><col className="w-[75px]" /><col className="w-[110px]" /><col className="w-[70px]" /></colgroup>
+                <thead><tr className="border-b border-auth-border text-[9px] uppercase tracking-[0.15em] text-auth-mutedDim"><th className="px-4 py-3 font-bold">Session</th><th className="px-3 py-3 font-bold">Aperçu</th><th className="px-3 py-3 font-bold">Statut</th><th className="px-3 py-3 font-bold">Démarrée</th><th className="px-3 py-3 font-bold">Questions</th><th className="px-3 py-3 font-bold">Joueurs</th><th className="px-3 py-3 font-bold">Durée</th><th className="px-3 py-3 font-bold">Actions</th></tr></thead>
+                <tbody>{filtered.map((party) => <tr key={party.id} onClick={() => setSelectedId(party.id)} className={`border-b border-auth-border/70 last:border-0 cursor-pointer transition ${selected?.id === party.id ? "bg-white/[0.04]" : "hover:bg-white/[0.025]"}`}>
+                  <td className="px-4 py-3.5 font-mono text-xs font-semibold text-auth-text">{shortId(party.id)}</td>
+                  <td className="px-3 py-3.5 min-w-0"><p className="text-xs text-auth-text truncate">{party.activeQuestion ?? party.firstQuestion ?? "Aucune question enregistrée"}</p><p className="text-[10px] text-auth-mutedDim mt-0.5">{party.activeQuestion ? "Question en cours" : party.questions.length ? "Première question" : "Session vide"}</p></td>
+                  <td className="px-3 py-3.5"><span className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider" style={{ background: `${STATUS_COLOR[party.status]}18`, color: STATUS_COLOR[party.status] }}>{party.status === "active" && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}{STATUS_LABEL[party.status]}</span></td>
+                  <td className="px-3 py-3.5 text-xs text-auth-muted">{formatDate(party.started_at)}</td><td className="px-3 py-3.5 text-xs text-auth-text">{party.questions.length}</td><td className="px-3 py-3.5 text-xs text-auth-text">{party.players}</td>
+                  <td className="px-3 py-3.5"><p className="text-xs text-auth-muted whitespace-nowrap">{formatDuration(party.started_at, party.ended_at)}</p>{party.status === "active" && <p className="mt-0.5 text-[9px] font-semibold text-auth-live">En cours</p>}</td>
+                  <td className="px-3 py-3.5"><div className="flex items-center gap-2 text-auth-mutedDim"><button onClick={(e) => { e.stopPropagation(); setSelectedId(party.id); }} className="hover:text-auth-text transition" title="Voir les détails"><Eye size={14} /></button><button onClick={(e) => { e.stopPropagation(); copySessionId(party.id); }} className="hover:text-auth-text transition" title="Copier l’ID"><Copy size={14} /></button></div></td>
+                </tr>)}</tbody>
+              </table>
             </div>
-            <p className="text-auth-mutedDim text-[10px] font-bold uppercase tracking-wide mb-1">{label}</p>
-            <p className="text-auth-text text-2xl font-bold mb-1">{value}</p>
-            <p className="text-auth-positive text-xs">↗ {delta}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6 items-start">
-        {/* Left: table */}
-        <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
-          {/* Tabs */}
-          <div className="flex items-center gap-1 px-4 pt-4">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`px-3 py-1.5 rounded-lg text-sm transition ${
-                  tab === t.key ? "bg-auth-blue/15 text-auth-text font-semibold" : "text-auth-muted hover:text-auth-text"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Filter row */}
-          <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="bg-auth-bg border border-auth-border rounded-lg px-3 py-1.5 text-xs text-auth-text outline-none"
-            >
-              <option value="all">Toutes catégories</option>
-              {categories.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <select
-              value={tab}
-              onChange={(e) => setTab(e.target.value as "all" | Status)}
-              className="bg-auth-bg border border-auth-border rounded-lg px-3 py-1.5 text-xs text-auth-text outline-none"
-            >
-              <option value="all">Tous statuts</option>
-              <option value="live">En direct</option>
-              <option value="scheduled">Programmées</option>
-              <option value="finished">Terminées</option>
-              <option value="draft">Brouillons</option>
-            </select>
-            <button
-              onClick={() => notify("Filtre de date — bientôt disponible.")}
-              className="bg-auth-bg border border-auth-border rounded-lg px-3 py-1.5 text-xs text-auth-muted"
-            >
-              Toutes les dates
-            </button>
-            <button
-              onClick={() => {
-                setTab("all");
-                setCategory("all");
-                setSearch("");
-              }}
-              className="ml-auto flex items-center gap-1.5 text-auth-muted text-xs hover:text-auth-text transition"
-            >
-              <RefreshCw size={12} /> Réinitialiser
-            </button>
-          </div>
-
-          {/* Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-auth-mutedDim text-[10px] uppercase tracking-wide border-y border-auth-border">
-                  <th className="text-left px-4 py-2 font-medium">ID Session</th>
-                  <th className="text-left px-2 py-2 font-medium">Titre</th>
-                  <th className="text-left px-2 py-2 font-medium">Catégorie</th>
-                  <th className="text-left px-2 py-2 font-medium">Statut</th>
-                  <th className="text-left px-2 py-2 font-medium">Date</th>
-                  <th className="text-left px-2 py-2 font-medium">Joueurs</th>
-                  <th className="text-left px-2 py-2 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => (
-                  <tr
-                    key={p.id}
-                    onClick={() => setSelectedId(p.id)}
-                    className={`border-b border-auth-border last:border-b-0 cursor-pointer transition ${
-                      selectedId === p.id ? "bg-white/5" : "hover:bg-white/[0.03]"
-                    }`}
-                  >
-                    <td className="px-4 py-3 text-auth-text font-mono text-xs">#{p.id}</td>
-                    <td className="px-2 py-3 text-auth-text text-xs">
-                      {p.emoji} {p.title}
-                    </td>
-                    <td className="px-2 py-3">
-                      <span
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded"
-                        style={{ background: `${p.categoryColor}22`, color: p.categoryColor }}
-                      >
-                        {p.category}
-                      </span>
-                    </td>
-                    <td className="px-2 py-3">
-                      <span
-                        className="text-[10px] font-bold px-2 py-0.5 rounded"
-                        style={{ background: `${STATUS_COLOR[p.status]}22`, color: STATUS_COLOR[p.status] }}
-                      >
-                        {STATUS_LABEL[p.status]}
-                      </span>
-                    </td>
-                    <td className="px-2 py-3 text-auth-muted text-xs">
-                      {p.date} {p.time !== "—" && `· ${p.time}`}
-                    </td>
-                    <td className="px-2 py-3 text-auth-text text-xs">{p.players ?? "—"}</td>
-                    <td className="px-2 py-3">
-                      <div className="flex items-center gap-2 text-auth-mutedDim">
-                        <button onClick={(e) => { e.stopPropagation(); setSelectedId(p.id); }} className="hover:text-auth-text transition">
-                          <Eye size={14} />
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); notify("Modifier — bientôt disponible."); }} className="hover:text-auth-text transition">
-                          <Pencil size={14} />
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); notify("Dupliquer — bientôt disponible."); }} className="hover:text-auth-text transition">
-                          <Copy size={14} />
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); notify("Suppression — bientôt disponible."); }} className="hover:text-auth-danger transition">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-auth-mutedDim text-xs">
-                      Aucune partie ne correspond à ces filtres.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex items-center justify-between px-4 py-3 border-t border-auth-border text-xs text-auth-mutedDim">
-            <span>Affichage de {filtered.length} à {filtered.length} sur 128 résultats</span>
-            <div className="flex items-center gap-1">
-              <button className="p-1.5 rounded border border-auth-border hover:bg-white/5 transition">
-                <ChevronLeft size={13} />
-              </button>
-              <span className="w-7 h-7 flex items-center justify-center rounded bg-auth-blue text-white font-semibold">1</span>
-              {[2, 3].map((n) => (
-                <button key={n} onClick={() => notify("Pagination — bientôt disponible.")} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 transition">
-                  {n}
-                </button>
-              ))}
-              <span>…</span>
-              <button onClick={() => notify("Pagination — bientôt disponible.")} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 transition">
-                13
-              </button>
-              <button className="p-1.5 rounded border border-auth-border hover:bg-white/5 transition">
-                <ChevronRight size={13} />
-              </button>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Right: detail panel + upcoming */}
-        <div className="flex flex-col gap-4">
-          <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-auth-border flex items-center justify-between">
-              <span className="text-auth-text font-bold text-xs uppercase tracking-wide">Détails de la partie</span>
-              {selected.status === "live" && (
-                <span className="flex items-center gap-1 text-auth-live text-[10px] font-bold">
-                  <span className="w-1.5 h-1.5 rounded-full bg-auth-live animate-pulse" /> EN DIRECT
-                </span>
-              )}
+        <aside className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden 2xl:sticky 2xl:top-5">
+          <div className="px-5 py-4 border-b border-auth-border flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-auth-text">Détails de la partie</p><p className="text-[11px] text-auth-muted mt-0.5">Données de la session sélectionnée</p></div>{selected && <span className="rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider" style={{ background: `${STATUS_COLOR[selected.status]}18`, color: STATUS_COLOR[selected.status] }}>{STATUS_LABEL[selected.status]}</span>}</div>
+          {!selected ? <EmptyState title="Aucune session" description="Les détails apparaîtront ici dès qu’une session sera disponible." /> : <div className="p-5">
+            <div className="w-12 h-12 rounded-xl border border-auth-border bg-auth-blue/[0.07] flex items-center justify-center mb-4"><Gamepad2 size={21} className="text-auth-blue" /></div>
+            <p className="text-base font-bold text-auth-text">Session {shortId(selected.id)}</p><p className="text-[11px] text-auth-muted mt-1 leading-5 line-clamp-3">{selected.activeQuestion ?? selected.firstQuestion ?? "Aucune question n’a encore été ajoutée à cette session."}</p>
+            <div className="mt-5 space-y-3 text-xs">
+              <div className="flex items-center justify-between gap-4"><span className="text-auth-muted">ID session</span><button onClick={() => copySessionId(selected.id)} className="inline-flex items-center gap-1.5 font-mono text-[10px] text-auth-text hover:text-auth-blue transition" title={selected.id}><span>{compactUuid(selected.id)}</span><Copy size={11} />{copiedId === selected.id && <span className="font-sans text-auth-positive">Copié</span>}</button></div>
+              <div className="flex items-center justify-between"><span className="text-auth-muted">Début</span><span className="text-auth-text">{formatDate(selected.started_at)}</span></div>
+              <div className="flex items-center justify-between"><span className="text-auth-muted">Fin</span>{selected.status === "active" ? <span className="inline-flex items-center gap-1.5 text-auth-live font-semibold"><span className="w-1.5 h-1.5 rounded-full bg-auth-live animate-pulse" />En cours</span> : <span className="text-auth-text">{selected.ended_at ? formatDate(selected.ended_at) : "—"}</span>}</div>
+              <div className="flex items-center justify-between"><span className="text-auth-muted">Durée</span><span className="text-auth-text">{formatDuration(selected.started_at, selected.ended_at)}{selected.status === "active" && <span className="text-auth-live"> · en cours</span>}</span></div>
+              <div className="flex items-center justify-between"><span className="text-auth-muted">Questions</span><span className="text-auth-text font-semibold">{selected.questions.length}</span></div><div className="flex items-center justify-between"><span className="text-auth-muted">Joueurs identifiés</span><span className="text-auth-text font-semibold">{selected.players}</span></div><div className="flex items-center justify-between"><span className="text-auth-muted">Spectateurs TikTok</span><span className="text-auth-mutedDim">—</span></div>
             </div>
+            <div className="mt-5 rounded-xl border border-auth-border bg-auth-bg/40 p-4"><div className="flex items-center gap-2 mb-2"><HelpCircle size={14} className="text-auth-purple" /><p className="text-[10px] font-bold uppercase tracking-wider text-auth-mutedDim">Contenu</p></div><p className="text-xs font-semibold text-auth-text">{selected.questions.length ? `${selected.questions.length} question${selected.questions.length > 1 ? "s" : ""} dans cette session` : "Aucune question enregistrée"}</p><p className="text-[10px] text-auth-muted mt-1">Les catégories et titres seront ajoutés quand le catalogue de quiz sera disponible dans le backend.</p></div>
+            <div className="mt-5 grid gap-2"><Link href="/admin/sessions-live" className="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold text-white" style={{ background: "linear-gradient(135deg, #4C6FFF 0%, #9B4DFF 52%, #FF3D8E 100%)" }}>{selected.status === "active" ? "Ouvrir la session live" : "Voir les sessions"}</Link><Link href="/admin/statistiques-live" className="flex items-center justify-center gap-2 rounded-lg border border-auth-border px-4 py-2.5 text-xs font-semibold text-auth-text hover:bg-white/5 transition">Voir les statistiques</Link></div>
+          </div>}
+        </aside>
+      </section>
 
-            <div
-              className="h-24 flex items-center justify-center text-4xl"
-              style={{ background: `linear-gradient(135deg, ${selected.categoryColor}33, #0A0C16)` }}
-            >
-              {selected.emoji}
-            </div>
-
-            <div className="p-5 flex flex-col gap-3">
-              <div>
-                <p className="text-auth-text font-semibold text-sm">{selected.title}</p>
-                <span
-                  className="inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded"
-                  style={{ background: `${selected.categoryColor}22`, color: selected.categoryColor }}
-                >
-                  {selected.category}
-                </span>
-                <p className="text-auth-mutedDim text-[11px] mt-1">ID : #{selected.id}</p>
-              </div>
-
-              <div className="flex flex-col gap-1.5 text-xs">
-                {[
-                  ["Date", selected.date],
-                  ["Heure", selected.time],
-                  ["Questions", String(selected.questions)],
-                  ["Joueurs", selected.players !== null ? String(selected.players) : "—"],
-                  ["Spectateurs", selected.spectators !== null ? String(selected.spectators) : "—"],
-                  ["Hôte", selected.host],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex items-center justify-between">
-                    <span className="text-auth-mutedDim">{label}</span>
-                    <span className="text-auth-text font-medium">{value}</span>
-                  </div>
-                ))}
-              </div>
-
-              <Link
-                href="/admin/sessions-live"
-                className="flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-white text-sm font-semibold"
-                style={{ background: "linear-gradient(90deg, #4C6FFF 0%, #9B4DFF 100%)" }}
-              >
-                <Play size={14} /> Voir le live
-              </Link>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => notify("Modifier — bientôt disponible.")}
-                  className="border border-auth-border rounded-lg py-2 text-xs text-auth-text hover:bg-white/5 transition"
-                >
-                  Modifier
-                </button>
-                <button
-                  onClick={() => notify("Dupliquer — bientôt disponible.")}
-                  className="border border-auth-border rounded-lg py-2 text-xs text-auth-text hover:bg-white/5 transition"
-                >
-                  Dupliquer
-                </button>
-              </div>
-              {selected.status === "live" && (
-                <button
-                  onClick={() => notify("Utilise Sessions live pour arrêter la partie en cours.")}
-                  className="border border-auth-danger/40 text-auth-danger rounded-lg py-2 text-xs hover:bg-auth-danger/10 transition"
-                >
-                  Arrêter la partie
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-auth-border">
-              <span className="text-auth-text font-bold text-xs uppercase tracking-wide">Prochaines parties cette semaine</span>
-            </div>
-            <div className="flex flex-col">
-              {UPCOMING.map((u) => (
-                <div key={u.title} className="flex items-center gap-3 px-5 py-3 border-b border-auth-border last:border-b-0">
-                  <div className="w-10 h-10 rounded-lg bg-auth-bg border border-auth-border flex flex-col items-center justify-center shrink-0">
-                    <span className="text-[8px] text-auth-mutedDim font-bold">{u.day}</span>
-                    <span className="text-xs text-auth-text font-bold leading-none">{u.date}</span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-auth-text text-xs font-medium truncate">{u.title}</p>
-                    <p className="text-auth-mutedDim text-[10px]">{u.time} · {u.questions} questions</p>
-                  </div>
-                  <span className="text-[9px] font-bold text-auth-blue bg-auth-blue/15 rounded px-1.5 py-0.5 shrink-0">Programmée</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+      <section className="rounded-lg border border-auth-border/70 bg-white/[0.015] px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-white/[0.025] border border-auth-border/70 flex items-center justify-center shrink-0"><Users size={14} className="text-auth-mutedDim" /></div><div><p className="text-[11px] font-semibold text-auth-muted">Programmation non disponible</p><p className="text-[10px] text-auth-mutedDim mt-0.5">Le backend actuel gère uniquement les sessions actives et terminées.</p></div></div>
+        <Link href="/admin/sessions-live" className="text-[11px] font-semibold text-auth-muted hover:text-auth-text transition whitespace-nowrap">Gérer les sessions →</Link>
+      </section>
     </div>
   );
 }
