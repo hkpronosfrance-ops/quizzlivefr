@@ -12,6 +12,7 @@ import {
   Radio,
   RefreshCw,
   Target,
+  Trophy,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -91,10 +92,7 @@ function MetricCard({ label, value, helper, icon: Icon, color }: MetricProps) {
   return (
     <div className="rounded-xl border border-auth-border bg-auth-panel p-4 min-w-0">
       <div className="flex items-start gap-3">
-        <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-          style={{ backgroundColor: `${color}18`, color }}
-        >
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: `${color}18`, color }}>
           <Icon size={19} />
         </div>
         <div className="min-w-0">
@@ -107,14 +105,24 @@ function MetricCard({ label, value, helper, icon: Icon, color }: MetricProps) {
   );
 }
 
-function CompactEmpty({ title, description }: { title: string; description: string }) {
+function CompactEmpty({
+  title,
+  description,
+  icon: Icon = Radio,
+  emphasis = false,
+}: {
+  title: string;
+  description: string;
+  icon?: LucideIcon;
+  emphasis?: boolean;
+}) {
   return (
-    <div className="px-5 py-7 flex items-center gap-4">
-      <div className="w-10 h-10 rounded-xl bg-white/[0.035] border border-auth-border flex items-center justify-center shrink-0">
-        <Radio size={18} className="text-auth-mutedDim" />
+    <div className={`px-5 ${emphasis ? "py-6" : "py-5"} flex items-center gap-4`}>
+      <div className={`${emphasis ? "w-12 h-12" : "w-10 h-10"} rounded-xl bg-white/[0.035] border border-auth-border flex items-center justify-center shrink-0`}>
+        <Icon size={emphasis ? 20 : 18} className={emphasis ? "text-auth-blue" : "text-auth-mutedDim"} />
       </div>
       <div>
-        <p className="text-sm font-semibold text-auth-text">{title}</p>
+        <p className={`${emphasis ? "text-sm" : "text-[13px]"} font-semibold text-auth-text`}>{title}</p>
         <p className="text-[11px] leading-5 text-auth-muted mt-0.5">{description}</p>
       </div>
     </div>
@@ -184,10 +192,7 @@ export default function LiveStatisticsPage() {
       const { data } = await db
         .from("answers")
         .select("id,question_id,tiktok_user,choice,is_correct,points_earned,created_at")
-        .in(
-          "question_id",
-          sessionQuestions.map((q) => q.id),
-        )
+        .in("question_id", sessionQuestions.map((q) => q.id))
         .limit(10000);
       setAnswers((data ?? []) as AnswerRow[]);
     } else {
@@ -214,7 +219,7 @@ export default function LiveStatisticsPage() {
   }, [answers, chat, leaderboard]);
 
   const successRate = useMemo(
-    () => (answers.length ? Math.round((answers.filter((a) => a.is_correct).length / answers.length) * 100) : 0),
+    () => (answers.length ? Math.round((answers.filter((a) => a.is_correct).length / answers.length) * 100) : null),
     [answers],
   );
 
@@ -281,7 +286,7 @@ export default function LiveStatisticsPage() {
             id: q.id,
             text: q.text,
             answers: rows.length,
-            successRate: rows.length ? Math.round((good / rows.length) * 100) : 0,
+            successRate: rows.length ? Math.round((good / rows.length) * 100) : null,
           };
         })
         .slice(-6)
@@ -364,20 +369,20 @@ export default function LiveStatisticsPage() {
         <MetricCard label="Joueurs identifiés" value={uniquePlayers.toLocaleString("fr-FR")} helper="Participants détectés dans la session" icon={Users} color="#9B4DFF" />
         <MetricCard label="Réponses reçues" value={answers.length.toLocaleString("fr-FR")} helper="Votes A, B, C ou D enregistrés" icon={Target} color="#4C6FFF" />
         <MetricCard label="Messages dans le chat" value={chat.length.toLocaleString("fr-FR")} helper="Commentaires TikTok enregistrés" icon={MessageSquare} color="#3DDCFF" />
-        <MetricCard label="Taux de réussite" value={`${successRate}%`} helper="Sur l’ensemble des réponses" icon={CheckCircle2} color="#22C55E" />
+        <MetricCard label="Taux de réussite" value={successRate === null ? "—" : `${successRate}%`} helper={successRate === null ? "En attente des premières réponses" : "Sur l’ensemble des réponses"} icon={CheckCircle2} color="#22C55E" />
         <MetricCard label="Questions jouées" value={questions.length.toLocaleString("fr-FR")} helper="Questions lancées pendant la session" icon={BarChart3} color="#F5A623" />
       </section>
 
       {session && !hasLiveData && (
-        <section className="rounded-xl border border-auth-blue/25 bg-auth-blue/[0.045] px-5 py-4 flex flex-col md:flex-row md:items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-auth-blue/10 flex items-center justify-center shrink-0">
-            <Radio size={19} className="text-auth-blue" />
+        <section className="rounded-xl border border-auth-blue/25 bg-auth-blue/[0.045] px-4 py-3 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-auth-blue/10 flex items-center justify-center shrink-0">
+            <Radio size={17} className="text-auth-blue" />
           </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-auth-text">En attente de données TikTok LIVE</p>
-            <p className="text-[11px] leading-5 text-auth-muted mt-0.5">La session est active, mais aucune réponse A/B/C/D ni aucun message participant n’a encore été enregistré. Les statistiques se rempliront automatiquement dès les premières interactions.</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-semibold text-auth-text">En attente de données TikTok LIVE</p>
+            <p className="text-[10px] sm:text-[11px] leading-5 text-auth-muted">Les statistiques apparaîtront automatiquement dès les premières réponses A/B/C/D ou les premiers messages.</p>
           </div>
-          <Link href="/admin/sessions-live" className="text-xs font-semibold text-auth-blue hover:text-auth-text transition whitespace-nowrap">Ouvrir la session →</Link>
+          <Link href="/admin/sessions-live" className="hidden sm:block text-[11px] font-semibold text-auth-blue hover:text-auth-text transition whitespace-nowrap">Ouvrir la session →</Link>
         </section>
       )}
 
@@ -452,7 +457,7 @@ export default function LiveStatisticsPage() {
                 <p className="text-sm font-bold text-auth-text">Top joueurs</p>
                 <p className="text-[11px] text-auth-muted mt-0.5">Classement de la session en cours</p>
               </div>
-              <Users size={16} className="text-auth-blue" />
+              <Trophy size={17} className="text-auth-blue" />
             </div>
             {topPlayers.length ? (
               <div className="divide-y divide-auth-border/70">
@@ -468,7 +473,12 @@ export default function LiveStatisticsPage() {
                 ))}
               </div>
             ) : (
-              <CompactEmpty title="Classement en attente" description="Les meilleurs joueurs apparaîtront après les premières réponses correctes." />
+              <CompactEmpty
+                title="Le classement se prépare"
+                description="Dès qu’un joueur marque ses premiers points, son pseudo et son score apparaîtront ici."
+                icon={Trophy}
+                emphasis
+              />
             )}
           </div>
         </div>
@@ -504,10 +514,17 @@ export default function LiveStatisticsPage() {
                       </td>
                       <td className="px-4 py-4 text-xs text-auth-muted">{q.answers.toLocaleString("fr-FR")}</td>
                       <td className="px-4 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden"><div className="h-full rounded-full bg-auth-positive" style={{ width: `${q.successRate}%` }} /></div>
-                          <span className="w-10 text-right text-xs font-semibold text-auth-text">{q.successRate}%</span>
-                        </div>
+                        {q.successRate === null ? (
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 h-1.5 rounded-full bg-white/5" />
+                            <span className="w-10 text-right text-xs font-semibold text-auth-muted">—</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden"><div className="h-full rounded-full bg-auth-positive" style={{ width: `${q.successRate}%` }} /></div>
+                            <span className="w-10 text-right text-xs font-semibold text-auth-text">{q.successRate}%</span>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
