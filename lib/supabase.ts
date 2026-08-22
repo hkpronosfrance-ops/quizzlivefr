@@ -1,11 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Client-side: read-only, safe to expose. Used by the overlay and by the
-// admin page for reading state (Realtime subscriptions).
-export function supabaseBrowser() {
+// Client-side: read-only for data, but also used for Supabase Auth
+// (email/password sign-in for the admin panel).
+// `remember` controls session persistence: localStorage survives browser
+// restarts, sessionStorage clears when the tab closes.
+export function supabaseBrowser(remember: boolean = true) {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      auth: {
+        persistSession: true,
+        storage: typeof window !== "undefined" ? (remember ? window.localStorage : window.sessionStorage) : undefined,
+      },
+    }
   );
 }
 

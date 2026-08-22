@@ -26,6 +26,21 @@ module.exports = {
           ready: "#3ECF6E",
           warn: "#F5A623",
         },
+
+        // Auth screen tokens — matches the QuizzLiveFR login mockup
+        auth: {
+          bg: "#05060C",
+          panel: "#0A0C16",
+          panelAlt: "#0D0F1C",
+          border: "#1D2030",
+          text: "#F3F4F8",
+          muted: "#8B8FA6",
+          mutedDim: "#6B7086",
+          blue: "#4C6FFF",
+          purple: "#9B4DFF",
+          pink: "#FF3D8E",
+          danger: "#FF4D6D",
+        },
       },
       fontFamily: {
         display: ["'Space Grotesk'", "sans-serif"],
