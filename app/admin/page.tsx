@@ -1,614 +1,376 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
-  Mail,
-  Lock,
+  Gamepad2,
+  Users,
   Eye,
-  EyeOff,
-  LogIn,
-  ShieldCheck,
-  PlayCircle,
-  BarChart3,
   MessageCircle,
-  Lock as LockSmall,
+  Target,
+  TrendingUp,
+  Plus,
+  Upload,
+  BarChart3,
+  Settings,
+  ArrowRight,
 } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { supabaseBrowser } from "@/lib/supabase";
-import type { LeaderboardRow, Question } from "@/lib/supabase";
+import type { Question } from "@/lib/supabase";
 
-function Logo({ size = 40 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
-      <defs>
-        <linearGradient id="logoGrad" x1="4" y1="4" x2="36" y2="36" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#4C6FFF" />
-          <stop offset="0.55" stopColor="#9B4DFF" />
-          <stop offset="1" stopColor="#FF3D8E" />
-        </linearGradient>
-      </defs>
-      <circle cx="20" cy="20" r="18" stroke="url(#logoGrad)" strokeWidth="3.5" strokeLinecap="round" strokeDasharray="90 24" />
-      <path d="M20 12a8 8 0 1 1-5.66 2.34" stroke="url(#logoGrad)" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-      <path d="M20 12l3.2 3.2-4.4 1.2 1.2-4.4z" fill="url(#logoGrad)" />
-    </svg>
-  );
-}
-
-function GoogleG({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 18 18">
-      <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z" />
-      <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.9v2.33A9 9 0 0 0 9 18z" />
-      <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.9A9 9 0 0 0 0 9c0 1.45.35 2.83.9 4.03l3.05-2.33z" />
-      <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .9 4.97L3.95 7.3C4.66 5.17 6.65 3.58 9 3.58z" />
-    </svg>
-  );
-}
-
-const FEATURES = [
-  {
-    icon: PlayCircle,
-    title: "Gestion des sessions live",
-    desc: "Créez, lancez et gérez vos parties en direct en toute simplicité.",
-  },
-  {
-    icon: BarChart3,
-    title: "Suivi des statistiques",
-    desc: "Analysez les performances et l'engagement de vos joueurs en temps réel.",
-  },
-  {
-    icon: MessageCircle,
-    title: "Modération du chat",
-    desc: "Supervisez les discussions et assurez un environnement sain et sécurisé.",
-  },
+// Mock data — no analytics/aggregation backend yet, wired for real once it exists.
+const STAT_CARDS = [
+  { icon: Gamepad2, label: "Parties aujourd'hui", value: "12", delta: "+20% vs hier", color: "#4C6FFF" },
+  { icon: Users, label: "Joueurs uniques", value: "1 248", delta: "+18% vs hier", color: "#9B4DFF" },
+  { icon: Eye, label: "Spectateurs live", value: "2 853", delta: "+32% vs hier", color: "#3DDCFF" },
+  { icon: MessageCircle, label: "Réponses envoyées", value: "18 392", delta: "+25% vs hier", color: "#FF3D8E" },
+  { icon: Target, label: "Taux de réussite", value: "67%", delta: "+4% vs hier", color: "#F5A623" },
 ];
 
-export default function AdminPage() {
-  const [authed, setAuthed] = useState(false);
-  const [checkingSession, setCheckingSession] = useState(true);
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(true);
-  const [error, setError] = useState("");
-  const [info, setInfo] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    const db = supabaseBrowser(true);
-    db.auth.getSession().then(({ data }) => {
-      setAuthed(!!data.session);
-      setCheckingSession(false);
-    });
-  }, []);
-
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    setInfo("");
-    setSubmitting(true);
-
-    const db = supabaseBrowser(remember);
-    const { error: signInError } = await db.auth.signInWithPassword({ email, password });
-
-    setSubmitting(false);
-
-    if (signInError) {
-      setError("Adresse e-mail ou mot de passe incorrect.");
-      return;
-    }
-
-    setAuthed(true);
-  }
-
-  async function handleForgotPassword() {
-    if (!email) {
-      setError("Renseigne ton adresse e-mail pour recevoir le lien de réinitialisation.");
-      return;
-    }
-    const db = supabaseBrowser(true);
-    const { error: resetError } = await db.auth.resetPasswordForEmail(email);
-    if (resetError) {
-      setError("Impossible d'envoyer le lien pour le moment.");
-    } else {
-      setError("");
-      setInfo("Lien de réinitialisation envoyé si ce compte existe.");
-    }
-  }
-
-  if (checkingSession) {
-    return <div className="min-h-screen bg-auth-bg" />;
-  }
-
-  if (!authed) {
-    return (
-      <div className="min-h-screen bg-auth-bg font-body flex flex-col">
-        {/* Top bar */}
-        <div className="max-w-[1200px] w-full mx-auto px-6 pt-8 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Logo size={36} />
-            <span className="text-auth-text font-bold text-lg tracking-tight">
-              QUIZLIVE
-              <sup className="text-[10px] font-bold text-auth-blue ml-0.5">FR</sup>
-            </span>
-          </div>
-          <div className="flex items-center gap-2 text-auth-muted text-sm">
-            <ShieldCheck size={16} />
-            <span>Accès réservé aux administrateurs</span>
-          </div>
-        </div>
-
-        {/* Card */}
-        <div className="flex-1 flex items-center justify-center px-6 py-10">
-          <div className="max-w-[1140px] w-full rounded-2xl border border-auth-border overflow-hidden grid grid-cols-1 md:grid-cols-2 bg-auth-panel">
-            {/* Left: form */}
-            <div className="p-10 md:p-14 flex flex-col justify-center">
-              <span className="text-auth-blue text-xs font-bold tracking-[0.15em] uppercase mb-3">
-                Espace admin
-              </span>
-              <h1 className="text-auth-text text-3xl font-bold mb-2">Connexion à l'espace admin</h1>
-              <p className="text-auth-muted text-sm mb-8">Accédez au panel de gestion QuizzLiveFR</p>
-
-              <form onSubmit={handleLogin} className="flex flex-col gap-5">
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-auth-text text-sm">Adresse e-mail</span>
-                  <div className="relative">
-                    <Mail size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-auth-muted" />
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="admin@quizzlivefr.fr"
-                      className="w-full bg-auth-bg border border-auth-border rounded-lg pl-10 pr-4 py-3 text-auth-text text-sm outline-none focus:border-auth-blue placeholder:text-auth-mutedDim"
-                    />
-                  </div>
-                </label>
-
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-auth-text text-sm">Mot de passe</span>
-                  <div className="relative">
-                    <Lock size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-auth-muted" />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Votre mot de passe"
-                      className="w-full bg-auth-bg border border-auth-border rounded-lg pl-10 pr-11 py-3 text-auth-text text-sm outline-none focus:border-auth-blue placeholder:text-auth-mutedDim"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-auth-muted hover:text-auth-text transition"
-                    >
-                      {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-                    </button>
-                  </div>
-                </label>
-
-                <div className="flex items-center justify-between text-sm">
-                  <label className="flex items-center gap-2 text-auth-muted cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={remember}
-                      onChange={(e) => setRemember(e.target.checked)}
-                      className="w-4 h-4 rounded accent-auth-blue"
-                    />
-                    Se souvenir de moi
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleForgotPassword}
-                    className="text-auth-blue hover:underline"
-                  >
-                    Mot de passe oublié ?
-                  </button>
-                </div>
-
-                {error && <p className="text-auth-danger text-sm">{error}</p>}
-                {info && !error && <p className="text-auth-blue text-sm">{info}</p>}
-
-                <button
-                  disabled={submitting}
-                  className="flex items-center justify-center gap-2 rounded-lg py-3 font-semibold text-white transition disabled:opacity-60"
-                  style={{ background: "linear-gradient(90deg, #4C6FFF 0%, #9B4DFF 55%, #FF3D8E 100%)" }}
-                >
-                  <LogIn size={18} />
-                  {submitting ? "Connexion…" : "Se connecter"}
-                </button>
-
-                <div className="flex items-center gap-4 text-auth-mutedDim text-xs">
-                  <div className="flex-1 h-px bg-auth-border" />
-                  OU
-                  <div className="flex-1 h-px bg-auth-border" />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setInfo("Connexion Google bientôt disponible.")}
-                  className="flex items-center justify-center gap-2.5 border border-auth-border rounded-lg py-3 text-auth-text text-sm hover:bg-white/5 transition"
-                >
-                  <GoogleG />
-                  Se connecter avec Google
-                </button>
-
-                <div className="flex items-center justify-center gap-1.5 text-auth-mutedDim text-xs mt-2">
-                  <LockSmall size={12} />
-                  Connexion sécurisée via HTTPS
-                </div>
-              </form>
-            </div>
-
-            {/* Right: marketing panel */}
-            <div className="relative bg-auth-panelAlt border-t md:border-t-0 md:border-l border-auth-border p-10 md:p-14 flex flex-col overflow-hidden">
-              <div
-                className="absolute -top-24 -right-24 w-72 h-72 rounded-full opacity-30 blur-3xl pointer-events-none"
-                style={{ background: "radial-gradient(circle, #4C6FFF, transparent 70%)" }}
-              />
-              <div className="flex justify-center mb-10 relative">
-                <Logo size={88} />
-              </div>
-              <div className="flex flex-col relative">
-                {FEATURES.map(({ icon: Icon, title, desc }, i) => (
-                  <div
-                    key={title}
-                    className={`flex items-start gap-4 py-4 ${i < FEATURES.length - 1 ? "border-b border-auth-border" : ""}`}
-                  >
-                    <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shrink-0 text-auth-blue">
-                      <Icon size={18} />
-                    </div>
-                    <div>
-                      <p className="text-auth-text text-sm font-semibold mb-0.5">{title}</p>
-                      <p className="text-auth-muted text-xs leading-relaxed">{desc}</p>
-                    </div>
-                  </div>
-                ))}
-                <div className="flex items-start gap-4 pt-4">
-                  <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shrink-0 text-auth-blue">
-                    <ShieldCheck size={18} />
-                  </div>
-                  <div>
-                    <p className="text-auth-text text-sm font-semibold mb-0.5">Plateforme sécurisée et fiable</p>
-                    <p className="text-auth-muted text-xs leading-relaxed">Vos données sont protégées et confidentielles.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="text-center text-auth-mutedDim text-xs pb-8">
-          © 2026 QuizzLiveFR. Tous droits réservés.
-        </div>
-      </div>
-    );
-  }
-
-  return <ControlPanel />;
-}
-
-const CHANNELS = [
-  { key: "a" as const, label: "CH.A", color: "#FF2D6A" },
-  { key: "b" as const, label: "CH.B", color: "#FFD400" },
-  { key: "c" as const, label: "CH.C", color: "#3DDCFF" },
-  { key: "d" as const, label: "CH.D", color: "#7CFF6B" },
+const ACTIVITY_DATA = [
+  { day: "16 mai", joueurs: 1900, reponses: 3400 },
+  { day: "17 mai", joueurs: 2100, reponses: 3100 },
+  { day: "18 mai", joueurs: 1750, reponses: 3600 },
+  { day: "19 mai", joueurs: 2300, reponses: 3300 },
+  { day: "20 mai", joueurs: 2450, reponses: 3900 },
+  { day: "21 mai", joueurs: 2200, reponses: 3700 },
+  { day: "22 mai", joueurs: 2600, reponses: 4200 },
 ];
 
-function ControlPanel() {
+const QUESTION_BANK = [
+  { name: "Culture générale", count: 1042, color: "#4C6FFF" },
+  { name: "Sport", count: 452, color: "#22C55E" },
+  { name: "Cinéma", count: 386, color: "#9B4DFF" },
+  { name: "Histoire", count: 312, color: "#F5A623" },
+  { name: "Géographie", count: 258, color: "#3DDCFF" },
+];
+
+type SessionRow = {
+  id: string;
+  started_at: string;
+  status: string;
+  players: number;
+};
+
+export default function DashboardPage() {
   const db = useMemo(() => supabaseBrowser(), []);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(null);
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
-  const [status, setStatus] = useState<string>("");
-  const [launching, setLaunching] = useState(false);
-  const [now, setNow] = useState(Date.now());
-
-  const [text, setText] = useState("");
-  const [choiceA, setChoiceA] = useState("");
-  const [choiceB, setChoiceB] = useState("");
-  const [choiceC, setChoiceC] = useState("");
-  const [choiceD, setChoiceD] = useState("");
-  const [correct, setCorrect] = useState<"a" | "b" | "c" | "d">("a");
-
-  const choiceSetters: Record<string, (v: string) => void> = {
-    a: setChoiceA,
-    b: setChoiceB,
-    c: setChoiceC,
-    d: setChoiceD,
-  };
-  const choiceValues: Record<string, string> = { a: choiceA, b: choiceB, c: choiceC, d: choiceD };
+  const [answerCounts, setAnswerCounts] = useState<Record<string, number>>({});
+  const [playerCount, setPlayerCount] = useState(0);
+  const [questionIndex, setQuestionIndex] = useState<{ current: number; total: number } | null>(null);
+  const [recentSessions, setRecentSessions] = useState<SessionRow[]>([]);
 
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(t);
-  }, []);
-
-  async function startSession() {
-    setStatus("INITIALISATION SESSION…");
-    const res = await fetch("/api/session/start", { method: "POST" });
-    const data = await res.json();
-    if (data.session) {
-      setSessionId(data.session.id);
-      setSessionStartedAt(data.session.started_at);
-      setStatus(data.reused ? "SESSION ACTIVE REPRISE" : "NOUVELLE SESSION OUVERTE");
-    } else {
-      setStatus("ERREUR: " + data.error);
-    }
-  }
-
-  useEffect(() => {
-    startSession();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!sessionId) return;
-
-    db.from("questions")
-      .select("*")
-      .eq("session_id", sessionId)
-      .eq("status", "active")
-      .maybeSingle()
-      .then(({ data }) => setActiveQuestion(data));
-
-    const channel = db
-      .channel(`admin-questions-${sessionId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "questions", filter: `session_id=eq.${sessionId}` },
-        (payload) => {
-          const row = payload.new as Question;
-          setActiveQuestion(row.status === "active" ? row : null);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      db.removeChannel(channel);
-    };
-  }, [db, sessionId]);
-
-  useEffect(() => {
-    if (!sessionId) return;
-
-    function refresh() {
-      db.from("leaderboard")
+    async function loadActive() {
+      const { data: q } = await db
+        .from("questions")
         .select("*")
-        .eq("session_id", sessionId as string)
-        .order("total_points", { ascending: false })
-        .limit(10)
-        .then(({ data }) => setLeaderboard(data ?? []));
+        .eq("status", "active")
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setActiveQuestion(q ?? null);
+
+      if (q) {
+        const { data: answers } = await db.from("answers").select("choice").eq("question_id", q.id);
+        const counts: Record<string, number> = {};
+        (answers ?? []).forEach((a) => {
+          counts[a.choice] = (counts[a.choice] ?? 0) + 1;
+        });
+        setAnswerCounts(counts);
+
+        const { count: players } = await db
+          .from("leaderboard")
+          .select("*", { count: "exact", head: true })
+          .eq("session_id", q.session_id);
+        setPlayerCount(players ?? 0);
+
+        const { count: totalQuestions } = await db
+          .from("questions")
+          .select("*", { count: "exact", head: true })
+          .eq("session_id", q.session_id);
+        const { data: allQuestions } = await db
+          .from("questions")
+          .select("id, started_at")
+          .eq("session_id", q.session_id)
+          .order("started_at", { ascending: true });
+        const idx = (allQuestions ?? []).findIndex((row) => row.id === q.id);
+        setQuestionIndex({ current: idx + 1, total: totalQuestions ?? 0 });
+      }
     }
-    refresh();
+    loadActive();
 
     const channel = db
-      .channel(`admin-leaderboard-${sessionId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "leaderboard", filter: `session_id=eq.${sessionId}` },
-        refresh
-      )
+      .channel("dashboard-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "questions" }, loadActive)
+      .on("postgres_changes", { event: "*", schema: "public", table: "answers" }, loadActive)
       .subscribe();
 
     return () => {
       db.removeChannel(channel);
     };
-  }, [db, sessionId]);
+  }, [db]);
 
-  async function launchQuestion(e: React.FormEvent) {
-    e.preventDefault();
-    if (!sessionId) return;
-    setLaunching(true);
-    setStatus("ENVOI VERS L'OVERLAY…");
+  useEffect(() => {
+    async function loadSessions() {
+      const { data: sessions } = await db
+        .from("sessions")
+        .select("id, started_at, status")
+        .order("started_at", { ascending: false })
+        .limit(5);
 
-    const res = await fetch("/api/question/launch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session_id: sessionId,
-        text,
-        choice_a: choiceA,
-        choice_b: choiceB,
-        choice_c: choiceC,
-        choice_d: choiceD,
-        correct_choice: correct,
-      }),
-    });
-    const data = await res.json();
-    setLaunching(false);
+      if (!sessions) return;
 
-    if (data.question) {
-      setStatus("QUESTION EN ANTENNE — 30S");
-      setText("");
-      setChoiceA("");
-      setChoiceB("");
-      setChoiceC("");
-      setChoiceD("");
-      setCorrect("a");
-    } else {
-      setStatus("ERREUR: " + data.error);
+      const withCounts = await Promise.all(
+        sessions.map(async (s) => {
+          const { count } = await db
+            .from("leaderboard")
+            .select("*", { count: "exact", head: true })
+            .eq("session_id", s.id);
+          return { ...s, players: count ?? 0 };
+        })
+      );
+      setRecentSessions(withCounts);
     }
-  }
+    loadSessions();
+  }, [db]);
 
-  async function endSession() {
-    if (!confirm("Terminer la session en cours ? Le classement restera consultable en base.")) return;
-    await fetch("/api/session/start", { method: "DELETE" });
-    setSessionId(null);
-    setActiveQuestion(null);
-    startSession();
-  }
-
-  const remaining = activeQuestion
-    ? Math.max(0, Math.ceil(activeQuestion.duration_seconds - (now - new Date(activeQuestion.started_at).getTime()) / 1000))
-    : 0;
-  const isLive = !!activeQuestion && remaining > 0;
-
-  const sessionElapsed = sessionStartedAt ? Math.floor((now - new Date(sessionStartedAt).getTime()) / 1000) : 0;
-  const sessionClock = `${String(Math.floor(sessionElapsed / 60)).padStart(2, "0")}:${String(sessionElapsed % 60).padStart(2, "0")}`;
+  const isLive = !!activeQuestion;
+  const choices = activeQuestion
+    ? (["a", "b", "c", "d"] as const).filter((c) => activeQuestion[`choice_${c}`])
+    : [];
+  const totalVotes = Object.values(answerCounts).reduce((a, b) => a + b, 0);
+  const CHOICE_COLORS: Record<string, string> = { a: "#FF3D8E", b: "#4C6FFF", c: "#3DDCFF", d: "#22C55E" };
 
   return (
-    <div className="min-h-screen bg-console-bg font-body pb-16">
-      {/* Status bar */}
-      <div className="border-b border-console-line bg-console-panel px-6 py-3 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          <span
-            className="w-3 h-3 rounded-full transition-all"
-            style={{
-              background: isLive ? "#E8342A" : "#3A3F3F",
-              boxShadow: isLive ? "0 0 10px 2px #E8342A" : "none",
-              animation: isLive ? "pulse 1s ease-in-out infinite" : "none",
-            }}
-          />
-          <span className="font-condensed font-bold text-sm tracking-[0.2em] uppercase" style={{ color: isLive ? "#E8342A" : "#7D8888" }}>
-            {isLive ? "ON AIR" : "HORS ANTENNE"}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="font-condensed text-console-muted text-xs tracking-widest uppercase">QuizzLiveFR</span>
-          <span className="text-console-line">·</span>
-          <span className="font-consolemono text-console-text text-xs">@quizzlivefr</span>
-        </div>
-
-        <div className="flex items-center gap-5">
-          <div className="flex items-center gap-2">
-            <span className="font-condensed text-console-muted text-xs tracking-widest uppercase">Session</span>
-            <span className="font-consolemono text-console-ready text-sm">{sessionClock}</span>
+    <div className="p-8 flex flex-col gap-6">
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        {STAT_CARDS.map(({ icon: Icon, label, value, delta, color }) => (
+          <div key={label} className="bg-auth-panel border border-auth-border rounded-xl p-4">
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center mb-3"
+              style={{ background: `${color}22`, color }}
+            >
+              <Icon size={17} />
+            </div>
+            <p className="text-auth-mutedDim text-[10px] font-bold uppercase tracking-wide mb-1">{label}</p>
+            <p className="text-auth-text text-2xl font-bold mb-1">{value}</p>
+            <p className="text-auth-positive text-xs flex items-center gap-1">
+              <TrendingUp size={11} />
+              {delta}
+            </p>
           </div>
-          <button
-            onClick={endSession}
-            className="text-console-tally text-xs font-condensed font-semibold uppercase tracking-widest border border-console-tally/40 rounded px-3 py-1.5 hover:bg-console-tally/10 transition"
-          >
-            Terminer
-          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Partie en cours — REAL data */}
+        <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-auth-border flex items-center justify-between">
+            <span className="text-auth-text font-bold text-sm uppercase tracking-wide">Partie en cours</span>
+            {isLive ? (
+              <span className="flex items-center gap-1.5 text-auth-live text-xs font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-auth-live animate-pulse" />
+                LIVE
+              </span>
+            ) : (
+              <span className="text-auth-mutedDim text-xs">Hors ligne</span>
+            )}
+          </div>
+
+          {isLive && activeQuestion ? (
+            <div className="p-5 flex flex-col gap-4">
+              <div className="grid grid-cols-2 gap-4 text-xs">
+                <div>
+                  <p className="text-auth-mutedDim uppercase tracking-wide mb-1">ID session</p>
+                  <p className="text-auth-text font-mono">#{activeQuestion.session_id.slice(0, 8)}</p>
+                </div>
+                <div>
+                  <p className="text-auth-mutedDim uppercase tracking-wide mb-1">Joueurs en live</p>
+                  <p className="text-auth-text font-semibold">{playerCount}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-auth-mutedDim uppercase tracking-wide mb-1">Question actuelle</p>
+                  <p className="text-auth-text font-semibold">{activeQuestion.text}</p>
+                  {questionIndex && (
+                    <p className="text-auth-mutedDim text-[11px] mt-0.5">
+                      Question {questionIndex.current} / {questionIndex.total}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {choices.map((c) => {
+                  const count = answerCounts[c] ?? 0;
+                  const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+                  return (
+                    <div key={c} className="relative rounded-lg overflow-hidden bg-auth-bg border border-auth-border h-9">
+                      <div
+                        className="absolute inset-y-0 left-0 opacity-25"
+                        style={{ width: `${pct}%`, background: CHOICE_COLORS[c], transition: "width 0.3s" }}
+                      />
+                      <div className="relative h-full flex items-center justify-between px-3">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold"
+                            style={{ background: CHOICE_COLORS[c], color: "#05060C" }}
+                          >
+                            {c.toUpperCase()}
+                          </span>
+                          <span className="text-auth-text text-xs">{activeQuestion[`choice_${c}`]}</span>
+                        </div>
+                        <span className="text-auth-mutedDim text-xs font-mono">{pct}%</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <p className="text-auth-mutedDim text-xs">{totalVotes} réponses au total</p>
+
+              <Link
+                href="/admin/sessions-live"
+                className="flex items-center justify-center gap-1.5 border border-auth-border rounded-lg py-2.5 text-auth-text text-sm hover:bg-white/5 transition"
+              >
+                Voir le live <ArrowRight size={14} />
+              </Link>
+            </div>
+          ) : (
+            <div className="p-8 flex flex-col items-center justify-center text-center gap-3">
+              <p className="text-auth-muted text-sm">Aucune partie en cours.</p>
+              <Link
+                href="/admin/sessions-live"
+                className="flex items-center gap-1.5 text-white text-sm font-semibold rounded-lg px-4 py-2"
+                style={{ background: "linear-gradient(90deg, #4C6FFF 0%, #9B4DFF 100%)" }}
+              >
+                <Plus size={15} /> Lancer une question
+              </Link>
+            </div>
+          )}
+        </div>
+
+        {/* Activity chart — mock */}
+        <div className="bg-auth-panel border border-auth-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-auth-text font-bold text-sm uppercase tracking-wide">Activité des 7 derniers jours</span>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={ACTIVITY_DATA}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1D2030" />
+              <XAxis dataKey="day" stroke="#6B7086" fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis stroke="#6B7086" fontSize={11} tickLine={false} axisLine={false} />
+              <Tooltip
+                contentStyle={{ background: "#0A0C16", border: "1px solid #1D2030", borderRadius: 8, fontSize: 12 }}
+                labelStyle={{ color: "#F3F4F8" }}
+              />
+              <Line type="monotone" dataKey="joueurs" name="Joueurs uniques" stroke="#4C6FFF" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="reponses" name="Réponses" stroke="#9B4DFF" strokeWidth={2} dot={{ r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 pt-8 flex flex-col gap-6">
-        {status && (
-          <p className="font-consolemono text-console-muted text-xs tracking-wide uppercase">▸ {status}</p>
-        )}
-
-        {/* Active question monitor */}
-        {isLive && activeQuestion && (
-          <div className="bg-console-panel border border-console-tally/50 rounded-md overflow-hidden">
-            <div className="px-5 py-2 border-b border-console-line bg-console-tally/10 flex items-center justify-between">
-              <span className="font-condensed font-bold text-console-tally text-xs tracking-[0.2em] uppercase">
-                Question en antenne
-              </span>
-              <span className="font-consolemono text-console-tally text-2xl font-bold tabular-nums">
-                {String(remaining).padStart(2, "0")}s
-              </span>
-            </div>
-            <div className="px-5 py-4">
-              <p className="text-console-text text-lg">{activeQuestion.text}</p>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Recent sessions — REAL data */}
+        <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-auth-border flex items-center justify-between">
+            <span className="text-auth-text font-bold text-sm uppercase tracking-wide">Dernières sessions live</span>
           </div>
-        )}
-
-        {/* Channel strip — question composer */}
-        <form onSubmit={launchQuestion} className="bg-console-panel border border-console-line rounded-md overflow-hidden">
-          <div className="px-5 py-3 border-b border-console-line flex items-center gap-2.5">
-            <span className="w-2 h-2 rounded-full bg-console-ready" />
-            <span className="font-condensed font-bold text-console-text text-xs tracking-[0.2em] uppercase">
-              CH.1 — Question
-            </span>
-          </div>
-          <div className="p-5 flex flex-col gap-5">
-            <input
-              required
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Quelle équipe a gagné la Ligue des Champions 2024 ?"
-              className="bg-console-bg border border-console-line rounded px-4 py-3 text-console-text outline-none focus:border-console-ready placeholder:text-console-muted/60"
-            />
-
-            <div className="grid grid-cols-2 gap-3">
-              {CHANNELS.map(({ key, label, color }) => (
-                <div key={key} className="bg-console-bg border border-console-line rounded overflow-hidden">
-                  <div className="flex items-center justify-between px-3 py-2 border-b border-console-line">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full" style={{ background: color }} />
-                      <span className="font-condensed font-semibold text-xs tracking-widest" style={{ color }}>
-                        {label}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setCorrect(key)}
-                      className={`font-condensed text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded transition ${
-                        correct === key
-                          ? "bg-console-ready text-console-bg"
-                          : "bg-transparent text-console-muted border border-console-line hover:border-console-ready/50"
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-auth-mutedDim text-[10px] uppercase tracking-wide border-b border-auth-border">
+                <th className="text-left px-5 py-2 font-medium">Session</th>
+                <th className="text-left px-2 py-2 font-medium">Date</th>
+                <th className="text-left px-2 py-2 font-medium">Joueurs</th>
+                <th className="text-left px-2 py-2 font-medium">Statut</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentSessions.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-5 py-6 text-center text-auth-mutedDim text-xs">
+                    Aucune session pour l'instant.
+                  </td>
+                </tr>
+              )}
+              {recentSessions.map((s) => (
+                <tr key={s.id} className="border-b border-auth-border last:border-b-0">
+                  <td className="px-5 py-3 text-auth-text font-mono text-xs">#{s.id.slice(0, 8)}</td>
+                  <td className="px-2 py-3 text-auth-muted text-xs">
+                    {new Date(s.started_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                  </td>
+                  <td className="px-2 py-3 text-auth-text text-xs">{s.players}</td>
+                  <td className="px-2 py-3">
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                        s.status === "active" ? "bg-auth-live/15 text-auth-live" : "bg-white/5 text-auth-mutedDim"
                       }`}
                     >
-                      {correct === key ? "✓ Bonne réponse" : "Marquer correcte"}
-                    </button>
+                      {s.status === "active" ? "EN COURS" : "TERMINÉE"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Question bank — mock */}
+        <div className="bg-auth-panel border border-auth-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-auth-text font-bold text-sm uppercase tracking-wide">Banque de questions</span>
+          </div>
+          <div className="flex items-center gap-6">
+            <div>
+              <p className="text-auth-text text-3xl font-bold">2 450</p>
+              <p className="text-auth-mutedDim text-xs">Questions totales</p>
+            </div>
+            <div className="flex-1 flex flex-col gap-1.5">
+              {QUESTION_BANK.map((c) => (
+                <div key={c.name} className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />
+                    <span className="text-auth-muted">{c.name}</span>
                   </div>
-                  <input
-                    required={key === "a" || key === "b"}
-                    value={choiceValues[key]}
-                    onChange={(e) => choiceSetters[key](e.target.value)}
-                    placeholder={key === "a" || key === "b" ? "Requis" : "Optionnel"}
-                    className="w-full bg-transparent px-3 py-2.5 text-console-text text-sm outline-none placeholder:text-console-muted/50"
-                  />
+                  <span className="text-auth-text font-mono">{c.count}</span>
                 </div>
               ))}
             </div>
-
-            <button
-              disabled={launching || isLive}
-              className="font-condensed font-bold uppercase tracking-[0.15em] rounded py-4 transition disabled:cursor-not-allowed"
-              style={{
-                background: isLive ? "#2A2F30" : launching ? "#2A2F30" : "#3ECF6E",
-                color: isLive || launching ? "#7D8888" : "#0D0F0F",
-              }}
-            >
-              {isLive ? `● En antenne (${remaining}s)` : launching ? "Envoi…" : "▶ Lancer la question"}
-            </button>
-          </div>
-        </form>
-
-        {/* Leaderboard monitor */}
-        <div className="bg-console-panel border border-console-line rounded-md overflow-hidden">
-          <div className="px-5 py-3 border-b border-console-line flex items-center gap-2.5">
-            <span className="w-2 h-2 rounded-full bg-console-warn" />
-            <span className="font-condensed font-bold text-console-text text-xs tracking-[0.2em] uppercase">
-              Monitor — Classement session
-            </span>
-          </div>
-          <div className="flex flex-col">
-            {leaderboard.length === 0 && (
-              <div className="px-5 py-6 text-console-muted font-consolemono text-xs text-center">
-                AUCUN SCORE — EN ATTENTE DE VOTES
-              </div>
-            )}
-            {leaderboard.map((row, i) => (
-              <div
-                key={row.tiktok_user}
-                className="flex items-center justify-between px-5 py-2.5 border-b border-console-line last:border-b-0"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="font-consolemono text-console-muted text-xs w-5">
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  <span className="text-console-text text-sm">@{row.tiktok_user}</span>
-                </div>
-                <span className="font-consolemono text-console-ready text-sm font-bold">{row.total_points}</span>
-              </div>
-            ))}
           </div>
         </div>
       </div>
 
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
-      `}</style>
+      {/* Quick actions */}
+      <div className="bg-auth-panel border border-auth-border rounded-xl p-5">
+        <span className="text-auth-text font-bold text-sm uppercase tracking-wide mb-4 block">Actions rapides</span>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <Link
+            href="/admin/sessions-live"
+            className="flex flex-col items-center gap-2 border border-auth-border rounded-lg py-4 text-auth-text text-xs hover:bg-white/5 transition"
+          >
+            <Plus size={18} />
+            Nouvelle partie
+          </Link>
+          {[
+            { icon: Plus, label: "Ajouter question" },
+            { icon: Upload, label: "Importer questions" },
+            { icon: BarChart3, label: "Statistiques" },
+            { icon: Settings, label: "Paramètres" },
+          ].map(({ icon: Icon, label }) => (
+            <button
+              key={label}
+              onClick={() => alert(`${label} — bientôt disponible.`)}
+              className="flex flex-col items-center gap-2 border border-auth-border rounded-lg py-4 text-auth-text text-xs hover:bg-white/5 transition"
+            >
+              <Icon size={18} />
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

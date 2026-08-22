@@ -40,6 +40,8 @@ module.exports = {
           purple: "#9B4DFF",
           pink: "#FF3D8E",
           danger: "#FF4D6D",
+          positive: "#22C55E",
+          live: "#EF4444",
         },
       },
       fontFamily: {
