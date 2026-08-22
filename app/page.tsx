@@ -133,7 +133,7 @@ export default function OverlayPage() {
 
   if (!question) {
     return (
-      <div className="w-screen h-screen flex items-end justify-start p-10">
+      <div className="w-screen h-screen overflow-hidden flex items-end justify-start p-10">
         <div className="text-ink font-body text-sm tracking-widest uppercase opacity-60">
           En attente de la prochaine question…
         </div>
@@ -144,7 +144,7 @@ export default function OverlayPage() {
   const ringCircumference = 2 * Math.PI * 28;
 
   return (
-    <div className="w-screen h-screen relative font-body">
+    <div className="w-screen h-screen overflow-hidden relative font-body">
       {/* Question card, bottom-left broadcast style */}
       <div className="absolute left-10 bottom-10 w-[560px]">
         <div className="bg-panel/95 border border-line rounded-2xl overflow-hidden shadow-2xl">
