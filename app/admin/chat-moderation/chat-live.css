@@ -1,0 +1,23 @@
+.chat-live-route .text-auth-green {
+  color: #6ee7b7 !important;
+}
+
+.chat-live-route .text-auth-orange {
+  color: #fbbf24 !important;
+}
+
+.chat-live-route [class*="border-auth-green/20"][class*="rounded-full"] {
+  color: #a7f3d0 !important;
+  background: rgba(16, 185, 129, 0.1) !important;
+  border-color: rgba(52, 211, 153, 0.38) !important;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.04), 0 0 18px rgba(16, 185, 129, 0.08);
+}
+
+.chat-live-route [class*="border-auth-green/20"][class*="rounded-full"] span[class*="bg-auth-green"] {
+  background-color: #34d399 !important;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
+}
+
+.chat-live-route [class*="border-auth-border"][class*="bg-auth-bg"] .text-auth-muted {
+  color: #9aa6bf;
+}
