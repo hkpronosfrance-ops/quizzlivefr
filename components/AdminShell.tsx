@@ -46,7 +46,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { label: "Sessions live", icon: Radio, href: "/admin/sessions-live", badge: "live" },
       { label: "Statistiques live", icon: BarChart3, href: "/admin/statistiques-live" },
-      { label: "Chat & Modération", icon: MessageSquare, href: "/admin/chat-moderation" },
+      { label: "Chat Live", icon: MessageSquare, href: "/admin/chat-moderation" },
       { label: "Notifications", icon: Bell },
     ],
   },
