@@ -92,6 +92,7 @@ function CompactEmpty({ title, description, compact = false }: { title: string; 
 
 export default function DashboardPage() {
   const db = useMemo(() => supabaseBrowser(), []);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
   const [answerCounts, setAnswerCounts] = useState<Record<string, number>>({});
   const [playerCount, setPlayerCount] = useState(0);
@@ -104,26 +105,44 @@ export default function DashboardPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   async function loadActive() {
-    const { data: q } = await db.from("questions").select("*").eq("status", "active").order("started_at", { ascending: false }).limit(1).maybeSingle();
-    setActiveQuestion(q ?? null);
+    const { data: session } = await db
+      .from("sessions")
+      .select("id")
+      .eq("status", "active")
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (!q) {
+    const sessionId = session?.id ?? null;
+    setActiveSessionId(sessionId);
+
+    if (!sessionId) {
+      setActiveQuestion(null);
       setAnswerCounts({});
       setPlayerCount(0);
       setQuestionIndex(null);
       return;
     }
 
-    const [{ data: activeAnswers }, { count: players }, { data: allQuestions }] = await Promise.all([
-      db.from("answers").select("choice").eq("question_id", q.id),
-      db.from("leaderboard").select("*", { count: "exact", head: true }).eq("session_id", q.session_id),
-      db.from("questions").select("id,started_at").eq("session_id", q.session_id).order("started_at", { ascending: true }),
+    const [{ data: q }, { count: players }, { data: allQuestions }] = await Promise.all([
+      db.from("questions").select("*").eq("session_id", sessionId).eq("status", "active").order("started_at", { ascending: false }).limit(1).maybeSingle(),
+      db.from("leaderboard").select("*", { count: "exact", head: true }).eq("session_id", sessionId),
+      db.from("questions").select("id,started_at").eq("session_id", sessionId).order("started_at", { ascending: true }),
     ]);
 
+    setPlayerCount(players ?? 0);
+    setActiveQuestion((q as Question | null) ?? null);
+
+    if (!q) {
+      setAnswerCounts({});
+      setQuestionIndex(null);
+      return;
+    }
+
+    const { data: activeAnswers } = await db.from("answers").select("choice").eq("question_id", q.id);
     const counts: Record<string, number> = {};
     (activeAnswers ?? []).forEach((a) => { counts[a.choice] = (counts[a.choice] ?? 0) + 1; });
     setAnswerCounts(counts);
-    setPlayerCount(players ?? 0);
     const idx = (allQuestions ?? []).findIndex((row) => row.id === q.id);
     setQuestionIndex({ current: Math.max(1, idx + 1), total: (allQuestions ?? []).length });
   }
@@ -165,10 +184,11 @@ export default function DashboardPage() {
   useEffect(() => {
     loadActive();
     loadAnalytics();
-    const interval = window.setInterval(loadAnalytics, 30000);
+    const interval = window.setInterval(() => { loadActive(); loadAnalytics(); }, 30000);
     const channel = db
       .channel("dashboard-v2-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "questions" }, loadActive)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => { loadActive(); loadAnalytics(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "questions" }, () => { loadActive(); loadAnalytics(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "answers" }, () => { loadActive(); loadAnalytics(); })
       .subscribe();
     return () => {
@@ -178,7 +198,7 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [db]);
 
-  const isLive = !!activeQuestion;
+  const isLive = !!activeSessionId;
   const choices = activeQuestion ? (["a", "b", "c", "d"] as const).filter((c) => activeQuestion[`choice_${c}`]) : [];
   const totalVotes = Object.values(answerCounts).reduce((a, b) => a + b, 0);
 
@@ -293,7 +313,7 @@ export default function DashboardPage() {
           {isLive && activeQuestion ? (
             <div className="p-5 flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-4 text-xs">
-                <div><p className="text-auth-mutedDim uppercase tracking-wide mb-1">ID session</p><p className="text-auth-text font-mono">#{activeQuestion.session_id.slice(0, 8)}</p></div>
+                <div><p className="text-auth-mutedDim uppercase tracking-wide mb-1">ID session</p><p className="text-auth-text font-mono">#{activeSessionId!.slice(0, 8)}</p></div>
                 <div><p className="text-auth-mutedDim uppercase tracking-wide mb-1">Joueurs identifiés</p><p className="text-auth-text font-semibold">{playerCount}</p></div>
                 <div className="col-span-2"><p className="text-auth-mutedDim uppercase tracking-wide mb-1">Question actuelle</p><p className="text-auth-text font-semibold">{activeQuestion.text}</p>{questionIndex && <p className="text-auth-mutedDim text-[11px] mt-0.5">Question {questionIndex.current} / {questionIndex.total}</p>}</div>
               </div>
@@ -314,8 +334,10 @@ export default function DashboardPage() {
               </div>
               <div className="flex items-center justify-between text-xs"><span className="text-auth-muted">{totalVotes} réponse{totalVotes > 1 ? "s" : ""} reçue{totalVotes > 1 ? "s" : ""}</span><Link href="/admin/sessions-live" className="text-auth-blue font-semibold hover:text-auth-text transition flex items-center gap-1">Ouvrir la session <ArrowRight size={13} /></Link></div>
             </div>
+          ) : isLive ? (
+            <CompactEmpty title="Session en cours — en attente d’une question" description="La session est bien active. Lancez une question depuis Session Live pour afficher ici les votes et le nombre de joueurs." />
           ) : (
-            <CompactEmpty title="Aucune partie en cours" description="Lance une session pour afficher ici la question active, les votes et le nombre de joueurs." />
+            <CompactEmpty title="Aucune partie en cours" description="Démarrez une session pour afficher ici la question active, les votes et le nombre de joueurs." />
           )}
         </div>
 
