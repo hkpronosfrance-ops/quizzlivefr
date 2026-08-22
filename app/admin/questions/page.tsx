@@ -267,7 +267,7 @@ export default function QuestionsPage() {
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Actualiser
           </button>
           <Link href="/admin/sessions-live" className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs font-semibold text-white" style={{ background: "linear-gradient(135deg, #4C6FFF 0%, #9B4DFF 52%, #FF3D8E 100%)" }}>
-            <Radio size={15} /> Nouvelle question live
+            <Radio size={15} /> Ajouter une question live
           </Link>
           <div className="hidden xl:block h-8 w-px bg-auth-border mx-1" />
           <AdminTopControls />
@@ -324,12 +324,12 @@ export default function QuestionsPage() {
                 <tbody>
                   {filtered.map((question) => (
                     <tr key={question.id} onClick={() => setSelectedId(question.id)} className={`border-b border-auth-border/70 last:border-0 cursor-pointer transition ${selected?.id === question.id ? "bg-white/[0.04]" : "hover:bg-white/[0.025]"}`}>
-                      <td className="px-4 py-3.5 font-mono text-xs font-semibold text-auth-text">{shortId(question.id)}</td>
+                      <td className="px-4 py-3.5 font-mono text-[11px] tracking-wide font-semibold text-auth-text">{shortId(question.id)}</td>
                       <td className="px-3 py-3.5 min-w-0"><p className="text-xs text-auth-text truncate">{question.text}</p><p className="text-[10px] text-auth-mutedDim mt-0.5">Créée le {formatDate(question.created_at)}</p></td>
                       <td className="px-3 py-3.5"><span className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider" style={{ background: `${STATUS_COLOR[question.status]}18`, color: STATUS_COLOR[question.status] }}>{question.status === "active" && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}{STATUS_LABEL[question.status]}</span></td>
                       <td className="px-3 py-3.5 font-mono text-[10px] text-auth-muted">{shortId(question.session_id)}</td>
                       <td className="px-3 py-3.5 text-xs text-auth-text">{question.answers}</td>
-                      <td className="px-3 py-3.5 text-xs font-semibold" style={{ color: question.successRate == null ? "#6B7086" : question.successRate >= 70 ? "#22C55E" : question.successRate >= 50 ? "#F5A623" : "#EF4444" }}>{question.successRate == null ? "—" : `${question.successRate.toFixed(1)}%`}</td>
+                      <td className="px-3 py-3.5 text-xs font-semibold" style={{ color: question.successRate == null ? "#8B8FA6" : question.successRate >= 70 ? "#22C55E" : question.successRate >= 50 ? "#F5A623" : "#EF4444" }}>{question.successRate == null ? "En attente" : `${question.successRate.toFixed(1)}%`}</td>
                       <td className="px-3 py-3.5 text-xs text-auth-muted">{question.duration_seconds}s</td>
                       <td className="px-3 py-3.5"><div className="flex items-center gap-2 text-auth-mutedDim"><button onClick={(e) => { e.stopPropagation(); setSelectedId(question.id); }} className="hover:text-auth-text transition" title="Voir les détails"><Eye size={14} /></button><button onClick={(e) => { e.stopPropagation(); copyId(question.id); }} className="hover:text-auth-text transition" title="Copier l’ID"><Copy size={14} /></button></div></td>
                     </tr>
@@ -356,7 +356,7 @@ export default function QuestionsPage() {
               <div className="grid grid-cols-3 gap-2 mt-5">
                 <div className="rounded-lg border border-auth-border bg-auth-bg/40 p-3 text-center"><Clock3 size={14} className="mx-auto text-auth-blue mb-1.5" /><p className="text-sm font-bold text-auth-text">{selected.duration_seconds}s</p><p className="text-[9px] uppercase tracking-wider text-auth-mutedDim">Temps</p></div>
                 <div className="rounded-lg border border-auth-border bg-auth-bg/40 p-3 text-center"><Users2 size={14} className="mx-auto text-auth-purple mb-1.5" /><p className="text-sm font-bold text-auth-text">{selected.uniquePlayers}</p><p className="text-[9px] uppercase tracking-wider text-auth-mutedDim">Joueurs</p></div>
-                <div className="rounded-lg border border-auth-border bg-auth-bg/40 p-3 text-center"><Target size={14} className="mx-auto text-auth-cyan mb-1.5" /><p className="text-sm font-bold text-auth-text">{selected.successRate == null ? "—" : `${selected.successRate.toFixed(1)}%`}</p><p className="text-[9px] uppercase tracking-wider text-auth-mutedDim">Réussite</p></div>
+                <div className="rounded-lg border border-auth-border bg-auth-bg/40 p-3 text-center"><Target size={14} className="mx-auto text-auth-cyan mb-1.5" /><p className={`text-sm font-bold ${selected.successRate == null ? "text-auth-muted" : "text-auth-text"}`}>{selected.successRate == null ? "En attente" : `${selected.successRate.toFixed(1)}%`}</p><p className="text-[9px] uppercase tracking-wider text-auth-mutedDim">Réussite</p></div>
               </div>
 
               <div className="mt-5">
@@ -387,13 +387,12 @@ export default function QuestionsPage() {
                 <div className="flex items-center justify-between gap-4"><span className="text-auth-muted">Réponses</span><span className="text-auth-text font-semibold">{selected.answers}</span></div>
               </div>
 
-              <div className="mt-5 rounded-xl border border-auth-border bg-auth-bg/40 p-4">
-                <div className="flex items-center gap-2 mb-2"><HelpCircle size={14} className="text-auth-purple" /><p className="text-[10px] font-bold uppercase tracking-wider text-auth-mutedDim">Catalogue</p></div>
-                <p className="text-xs font-semibold text-auth-text">Question issue d’une session live</p>
-                <p className="text-[10px] text-auth-muted mt-1 leading-4">Catégorie, difficulté, auteur, brouillon et archivage ne sont pas encore stockés dans le backend. Aucun faux attribut n’est affiché ici.</p>
+              <div className="mt-4 rounded-lg border border-auth-border/70 bg-auth-bg/30 px-3 py-2.5">
+                <div className="flex items-center gap-2"><HelpCircle size={13} className="text-auth-purple" /><p className="text-[10px] font-semibold text-auth-muted">Question de session live</p></div>
+                <p className="text-[10px] text-auth-mutedDim mt-1 leading-4">Les attributs de catalogue seront disponibles avec la Banque de questions.</p>
               </div>
 
-              <div className="mt-5 grid gap-2">
+              <div className="mt-4 grid gap-2">
                 <Link href="/admin/sessions-live" className="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold text-white" style={{ background: "linear-gradient(135deg, #4C6FFF 0%, #9B4DFF 52%, #FF3D8E 100%)" }}>Ouvrir la session live</Link>
                 <Link href="/admin/statistiques-live" className="flex items-center justify-center gap-2 rounded-lg border border-auth-border px-4 py-2.5 text-xs font-semibold text-auth-text hover:bg-white/5 transition">Voir les statistiques</Link>
               </div>
