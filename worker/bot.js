@@ -94,7 +94,7 @@ async function handleComment(data) {
 }
 
 async function connect() {
-  const connection = new TikTokLiveConnection(TIKTOK_USERNAME);
+  const connection = new TikTokLiveConnection(TIKTOK_USERNAME, {});
 
   connection.on("chat", handleComment);
 
