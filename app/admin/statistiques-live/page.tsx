@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Activity, BarChart3, CheckCircle2, Download, Eye, MessageSquare, Radio, RefreshCw, Target, Users } from "lucide-react";
+import { Activity, BarChart3, CheckCircle2, Download, Eye, MessageSquare, Radio, RefreshCw, Target, Users, type LucideIcon } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AdminTopControls } from "@/components/AdminTopControls";
 import { supabaseBrowser } from "@/lib/supabase";
@@ -12,8 +12,7 @@ type QuestionRow = { id: string; session_id: string; text: string; choice_a: str
 type AnswerRow = { id: string; question_id: string; tiktok_user: string; choice: "a" | "b" | "c" | "d"; is_correct: boolean; points_earned: number; created_at?: string | null };
 type ChatRow = { id: string; session_id: string; tiktok_user: string; message: string; is_vote: boolean; choice: "a" | "b" | "c" | "d" | null; created_at: string };
 type LeaderboardRow = { session_id: string; tiktok_user: string; total_points: number; correct_answers: number; total_answers: number };
-
-type MetricProps = { label: string; value: string; helper: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string };
+type MetricProps = { label: string; value: string; helper: string; icon: LucideIcon; color: string };
 
 const CHOICE_COLORS: Record<string, string> = { a: "#4C6FFF", b: "#FF3D8E", c: "#22C55E", d: "#F5A623" };
 const CHOICE_LABELS: Record<string, string> = { a: "A", b: "B", c: "C", d: "D" };
