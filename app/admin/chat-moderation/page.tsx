@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
-  Ban,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -14,10 +13,8 @@ import {
   Radio,
   RefreshCw,
   Search,
-  Shield,
-  ShieldAlert,
+  ShieldCheck,
   Trash2,
-  UserRoundSearch,
   Users,
   Vote,
   X,
@@ -37,16 +34,8 @@ type ChatRow = {
   created_at: string;
 };
 type MessageState = { message_id: string; hidden: boolean; flagged: boolean; updated_at: string };
-type UserState = {
-  tiktok_user: string;
-  watched: boolean;
-  hidden_locally: boolean;
-  note: string;
-  updated_at: string;
-};
 type TermRow = { id: string; term: string; is_active: boolean; created_at: string; updated_at: string };
 type FilterKey = "all" | "messages" | "votes" | "flagged" | "sensitive";
-
 type IconType = typeof MessageSquare;
 
 function MetricCard({ icon: Icon, label, value, helper, color }: { icon: IconType; label: string; value: string; helper: string; color: string }) {
@@ -78,25 +67,23 @@ function shortId(id: string) {
   return `#${id.replaceAll("-", "").slice(0, 8).toUpperCase()}`;
 }
 
-export default function ChatModerationPage() {
+export default function ChatLivePage() {
   const db = useMemo(() => supabaseBrowser(), []);
   const notify = useAdminToast();
   const [session, setSession] = useState<SessionRow | null>(null);
   const [messages, setMessages] = useState<ChatRow[]>([]);
   const [messageStates, setMessageStates] = useState<MessageState[]>([]);
-  const [userStates, setUserStates] = useState<UserState[]>([]);
   const [terms, setTerms] = useState<TermRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
-  const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [newTerm, setNewTerm] = useState("");
-  const [noteDraft, setNoteDraft] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const refresh = useCallback(async (showLoader = false) => {
     if (showLoader) setRefreshing(true);
+
     const { data: activeSession } = await db
       .from("sessions")
       .select("id,status,started_at,ended_at")
@@ -105,14 +92,12 @@ export default function ChatModerationPage() {
       .limit(1)
       .maybeSingle();
 
-    const [messageStatesRes, userStatesRes, termsRes] = await Promise.all([
+    const [messageStatesRes, termsRes] = await Promise.all([
       db.from("moderation_message_states").select("message_id,hidden,flagged,updated_at"),
-      db.from("moderation_user_states").select("tiktok_user,watched,hidden_locally,note,updated_at"),
       db.from("moderation_terms").select("id,term,is_active,created_at,updated_at").order("term", { ascending: true }),
     ]);
 
     setMessageStates((messageStatesRes.data || []) as MessageState[]);
-    setUserStates((userStatesRes.data || []) as UserState[]);
     setTerms((termsRes.data || []) as TermRow[]);
 
     if (activeSession) {
@@ -139,13 +124,13 @@ export default function ChatModerationPage() {
     refresh(false);
     const timer = window.setInterval(() => refresh(false), 15000);
     const channel = db
-      .channel("admin-chat-moderation-v2")
+      .channel("admin-chat-live-v2")
       .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => refresh(false))
       .on("postgres_changes", { event: "*", schema: "public", table: "chat_messages" }, () => refresh(false))
       .on("postgres_changes", { event: "*", schema: "public", table: "moderation_message_states" }, () => refresh(false))
-      .on("postgres_changes", { event: "*", schema: "public", table: "moderation_user_states" }, () => refresh(false))
       .on("postgres_changes", { event: "*", schema: "public", table: "moderation_terms" }, () => refresh(false))
       .subscribe();
+
     return () => {
       window.clearInterval(timer);
       db.removeChannel(channel);
@@ -153,8 +138,10 @@ export default function ChatModerationPage() {
   }, [db, refresh]);
 
   const messageStateMap = useMemo(() => new Map(messageStates.map((row) => [row.message_id, row])), [messageStates]);
-  const userStateMap = useMemo(() => new Map(userStates.map((row) => [row.tiktok_user.toLowerCase(), row])), [userStates]);
-  const activeTerms = useMemo(() => terms.filter((term) => term.is_active).map((term) => term.term.trim().toLowerCase()).filter(Boolean), [terms]);
+  const activeTerms = useMemo(
+    () => terms.filter((term) => term.is_active).map((term) => term.term.trim().toLowerCase()).filter(Boolean),
+    [terms]
+  );
 
   const hasSensitiveTerm = useCallback((text: string) => {
     const lower = text.toLowerCase();
@@ -164,9 +151,14 @@ export default function ChatModerationPage() {
   const realMessages = useMemo(() => messages.filter((row) => !row.is_vote), [messages]);
   const voteCount = useMemo(() => messages.filter((row) => row.is_vote).length, [messages]);
   const uniqueUsers = useMemo(() => new Set(messages.map((row) => row.tiktok_user.toLowerCase())).size, [messages]);
-  const flaggedCount = useMemo(() => messageStates.filter((row) => row.flagged && messages.some((m) => m.id === row.message_id)).length, [messageStates, messages]);
-  const sensitiveCount = useMemo(() => realMessages.filter((row) => hasSensitiveTerm(row.message)).length, [realMessages, hasSensitiveTerm]);
-  const watchedCount = useMemo(() => userStates.filter((row) => row.watched).length, [userStates]);
+  const flaggedCount = useMemo(
+    () => messageStates.filter((row) => row.flagged && messages.some((message) => message.id === row.message_id)).length,
+    [messageStates, messages]
+  );
+  const sensitiveCount = useMemo(
+    () => realMessages.filter((row) => hasSensitiveTerm(row.message)).length,
+    [realMessages, hasSensitiveTerm]
+  );
 
   const filteredMessages = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -190,16 +182,6 @@ export default function ChatModerationPage() {
     sensitive: sensitiveCount,
   };
 
-  const selectedUserRows = selectedUser ? messages.filter((row) => row.tiktok_user.toLowerCase() === selectedUser.toLowerCase()) : [];
-  const selectedState = selectedUser ? userStateMap.get(selectedUser.toLowerCase()) : undefined;
-  const selectedRealMessages = selectedUserRows.filter((row) => !row.is_vote).length;
-  const selectedVotes = selectedUserRows.filter((row) => row.is_vote).length;
-  const selectedFlags = selectedUserRows.filter((row) => messageStateMap.get(row.id)?.flagged).length;
-
-  useEffect(() => {
-    setNoteDraft(selectedState?.note || "");
-  }, [selectedState, selectedUser]);
-
   async function setMessageState(messageId: string, patch: Partial<Pick<MessageState, "hidden" | "flagged">>) {
     const current = messageStateMap.get(messageId);
     const payload = {
@@ -209,21 +191,7 @@ export default function ChatModerationPage() {
       updated_at: new Date().toISOString(),
     };
     const { error } = await db.from("moderation_message_states").upsert(payload, { onConflict: "message_id" });
-    if (error) return notify(`Impossible d'enregistrer la modération : ${error.message}`);
-    await refresh(false);
-  }
-
-  async function setUserState(user: string, patch: Partial<Pick<UserState, "watched" | "hidden_locally" | "note">>) {
-    const current = userStateMap.get(user.toLowerCase());
-    const payload = {
-      tiktok_user: user,
-      watched: patch.watched ?? current?.watched ?? false,
-      hidden_locally: patch.hidden_locally ?? current?.hidden_locally ?? false,
-      note: patch.note ?? current?.note ?? "",
-      updated_at: new Date().toISOString(),
-    };
-    const { error } = await db.from("moderation_user_states").upsert(payload, { onConflict: "tiktok_user" });
-    if (error) return notify(`Impossible d'enregistrer l'utilisateur : ${error.message}`);
+    if (error) return notify(`Impossible d'enregistrer l'action : ${error.message}`);
     await refresh(false);
   }
 
@@ -251,7 +219,7 @@ export default function ChatModerationPage() {
   }
 
   if (loading) {
-    return <div className="min-h-[70vh] flex items-center justify-center text-auth-muted text-sm">Chargement du chat et des règles de modération…</div>;
+    return <div className="min-h-[70vh] flex items-center justify-center text-auth-muted text-sm">Chargement du Chat Live…</div>;
   }
 
   const filters: { key: FilterKey; label: string }[] = [
@@ -259,7 +227,7 @@ export default function ChatModerationPage() {
     { key: "messages", label: "Messages" },
     { key: "votes", label: "Votes" },
     { key: "flagged", label: "Signalés" },
-    { key: "sensitive", label: "À surveiller" },
+    { key: "sensitive", label: "Mots sensibles" },
   ];
 
   return (
@@ -267,12 +235,12 @@ export default function ChatModerationPage() {
       <div className="flex items-start justify-between gap-6 mb-5">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-3xl font-bold text-auth-text tracking-tight">Chat & Modération</h1>
+            <h1 className="text-3xl font-bold text-auth-text tracking-tight">Chat Live</h1>
             <span className={`px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-wide border ${session ? "text-auth-green bg-auth-green/10 border-auth-green/20" : "text-auth-muted bg-white/[0.035] border-auth-border"}`}>
               {session ? "En direct" : "Hors ligne"}
             </span>
           </div>
-          <p className="text-auth-muted text-sm mt-1">Surveillez les commentaires TikTok et gérez la modération interne de QuizzLiveFR.</p>
+          <p className="text-auth-muted text-sm mt-1">Suivez les commentaires et les votes TikTok reçus par QuizzLiveFR en temps réel.</p>
           <div className="flex items-center gap-4 mt-2.5 text-[11px] text-auth-mutedDim">
             <span>{session ? `Session ${shortId(session.id)}` : "Aucune session active"}</span>
             {lastUpdated && <span>Mis à jour à {lastUpdated.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>}
@@ -296,14 +264,14 @@ export default function ChatModerationPage() {
       </div>
 
       <div className="grid grid-cols-5 gap-3 mb-5">
-        <MetricCard icon={MessageSquare} label="Messages" value={String(realMessages.length)} helper="Commentaires TikTok hors votes" color="#3DDCFF" />
+        <MetricCard icon={MessageSquare} label="Messages" value={String(realMessages.length)} helper="Commentaires hors votes" color="#3DDCFF" />
         <MetricCard icon={Vote} label="Votes détectés" value={String(voteCount)} helper="Réponses A, B, C ou D" color="#4C6FFF" />
-        <MetricCard icon={Users} label="Participants" value={String(uniqueUsers)} helper="Pseudos vus dans cette session" color="#9B4DFF" />
-        <MetricCard icon={Flag} label="Signalements" value={String(flaggedCount)} helper="Messages marqués dans le panel" color="#EF4444" />
-        <MetricCard icon={ShieldAlert} label="À surveiller" value={`${watchedCount}`} helper={`${sensitiveCount} message${sensitiveCount > 1 ? "s" : ""} détecté${sensitiveCount > 1 ? "s" : ""}`} color="#F5A623" />
+        <MetricCard icon={Users} label="Participants" value={String(uniqueUsers)} helper="Pseudos vus dans la session" color="#9B4DFF" />
+        <MetricCard icon={AlertTriangle} label="Mots sensibles" value={String(sensitiveCount)} helper="Messages détectés par vos règles" color="#F5A623" />
+        <MetricCard icon={Flag} label="Signalés" value={String(flaggedCount)} helper="Marqués pour votre suivi interne" color="#EF4444" />
       </div>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_390px] gap-4 items-start">
+      <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-4 items-start">
         <section className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden min-w-0">
           <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -316,124 +284,76 @@ export default function ChatModerationPage() {
             </div>
             <div className="relative w-64 shrink-0">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-auth-mutedDim" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pseudo ou message…" className="w-full h-8 rounded-lg border border-auth-border bg-auth-bg pl-9 pr-8 text-xs text-auth-text outline-none focus:border-auth-blue placeholder:text-auth-mutedDim" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pseudo ou message…" className="w-full h-8 rounded-lg border border-auth-border bg-auth-bg pl-9 pr-8 text-xs text-auth-text outline-none focus:border-auth-blue placeholder:text-auth-mutedDim" />
               {query && <button onClick={() => setQuery("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-auth-mutedDim hover:text-auth-text"><X size={13} /></button>}
             </div>
           </div>
 
           {!session ? (
-            <div className="px-5 py-5">
-              <div className="rounded-xl border border-auth-blue/20 bg-auth-blue/[0.035] p-5">
-                <div className="flex items-start justify-between gap-5">
-                  <div className="flex gap-4 min-w-0">
-                    <div className="w-11 h-11 rounded-xl border border-auth-blue/20 bg-auth-blue/10 text-auth-blue flex items-center justify-center shrink-0"><Radio size={19} /></div>
-                    <div>
-                      <p className="text-sm font-semibold text-auth-text">Centre de modération prêt</p>
-                      <p className="text-[11px] leading-5 text-auth-muted mt-1 max-w-xl">Le flux TikTok apparaîtra dès qu'une session sera active. Vos règles, mots surveillés et profils de modération restent enregistrés entre les lives.</p>
-                    </div>
-                  </div>
-                  <Link href="/admin/sessions-live" className="h-9 px-4 rounded-lg text-xs font-semibold text-white flex items-center gap-2 shrink-0" style={{ background: "linear-gradient(90deg,#4C6FFF,#9B4DFF,#FF3D8E)" }}><Radio size={13} /> Démarrer une session</Link>
-                </div>
-                <div className="grid grid-cols-4 gap-2.5 mt-4">
-                  <div className="rounded-lg border border-auth-border bg-auth-bg/70 px-3 py-2.5"><p className="text-[9px] uppercase tracking-[0.14em] text-auth-mutedDim font-bold">Statut TikTok LIVE</p><p className="text-xs font-semibold text-auth-muted mt-1">Hors ligne</p></div>
-                  <div className="rounded-lg border border-auth-border bg-auth-bg/70 px-3 py-2.5"><p className="text-[9px] uppercase tracking-[0.14em] text-auth-mutedDim font-bold">Mots actifs</p><p className="text-xs font-semibold text-auth-text mt-1">{activeTerms.length}</p></div>
-                  <div className="rounded-lg border border-auth-border bg-auth-bg/70 px-3 py-2.5"><p className="text-[9px] uppercase tracking-[0.14em] text-auth-mutedDim font-bold">Utilisateurs suivis</p><p className="text-xs font-semibold text-auth-text mt-1">{watchedCount}</p></div>
-                  <div className="rounded-lg border border-auth-border bg-auth-bg/70 px-3 py-2.5"><p className="text-[9px] uppercase tracking-[0.14em] text-auth-mutedDim font-bold">Sanctions TikTok</p><p className="text-xs font-semibold text-auth-orange mt-1">Non connectées</p></div>
-                </div>
-              </div>
+            <div className="min-h-[300px] flex flex-col items-center justify-center text-center px-6">
+              <div className="w-12 h-12 rounded-xl border border-auth-blue/20 bg-auth-blue/10 text-auth-blue flex items-center justify-center mb-3"><Radio size={20} /></div>
+              <p className="text-sm font-semibold text-auth-text">Chat Live en attente</p>
+              <p className="text-[11px] leading-5 text-auth-muted mt-1 max-w-md">Démarrez une session pour afficher ici les commentaires TikTok et les votes reçus par QuizzLiveFR.</p>
+              <Link href="/admin/sessions-live" className="mt-4 h-9 px-4 rounded-lg text-xs font-semibold text-white flex items-center gap-2" style={{ background: "linear-gradient(90deg,#4C6FFF,#9B4DFF,#FF3D8E)" }}><Radio size={13} /> Démarrer une session</Link>
             </div>
           ) : filteredMessages.length === 0 ? (
-            <div className="min-h-[260px] flex flex-col items-center justify-center text-center px-6">
+            <div className="min-h-[300px] flex flex-col items-center justify-center text-center px-6">
               <div className="w-11 h-11 rounded-xl border border-auth-border bg-white/[0.025] text-auth-mutedDim flex items-center justify-center mb-3"><MessageSquare size={19} /></div>
-              <p className="text-sm font-semibold text-auth-text">{messages.length === 0 ? "Chat encore silencieux" : "Aucun message pour ce filtre"}</p>
-              <p className="text-[11px] leading-5 text-auth-muted mt-1">{messages.length === 0 ? "Les commentaires et votes TikTok seront ajoutés automatiquement." : "Modifiez la recherche ou choisissez un autre filtre."}</p>
+              <p className="text-sm font-semibold text-auth-text">{messages.length === 0 ? "Chat encore silencieux" : "Aucun élément pour ce filtre"}</p>
+              <p className="text-[11px] leading-5 text-auth-muted mt-1">{messages.length === 0 ? "Les commentaires et votes TikTok apparaîtront automatiquement." : "Modifiez la recherche ou choisissez un autre filtre."}</p>
             </div>
           ) : (
-            <div className="max-h-[570px] overflow-y-auto">
+            <div className="max-h-[610px] overflow-y-auto">
               {filteredMessages.map((row) => {
                 const state = messageStateMap.get(row.id);
-                const userState = userStateMap.get(row.tiktok_user.toLowerCase());
                 const sensitive = !row.is_vote && hasSensitiveTerm(row.message);
-                const locallyHidden = state?.hidden || userState?.hidden_locally;
                 return (
-                  <div key={row.id} className={`px-4 py-3 border-b border-auth-border/80 last:border-b-0 flex gap-3 group ${locallyHidden ? "opacity-50" : ""} ${selectedUser?.toLowerCase() === row.tiktok_user.toLowerCase() ? "bg-auth-blue/[0.045]" : "hover:bg-white/[0.018]"}`}>
-                    <button onClick={() => setSelectedUser(row.tiktok_user)} className="w-8 h-8 rounded-full bg-gradient-to-br from-auth-blue/80 to-auth-purple/80 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+                  <div key={row.id} className={`px-4 py-3 border-b border-auth-border/80 last:border-b-0 flex gap-3 group ${state?.hidden ? "opacity-45" : "hover:bg-white/[0.018]"}`}>
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-auth-blue/80 to-auth-purple/80 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
                       {row.tiktok_user.slice(0, 2).toUpperCase()}
-                    </button>
+                    </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 min-w-0">
-                        <button onClick={() => setSelectedUser(row.tiktok_user)} className="text-xs font-semibold text-auth-text hover:text-auth-blue truncate">@{row.tiktok_user}</button>
+                        <span className="text-xs font-semibold text-auth-text truncate">@{row.tiktok_user}</span>
                         <span className="text-[10px] text-auth-mutedDim">{formatClock(row.created_at)}</span>
                         {row.is_vote && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-auth-blue bg-auth-blue/10">VOTE {row.choice?.toUpperCase()}</span>}
-                        {sensitive && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-auth-orange bg-auth-orange/10">À SURVEILLER</span>}
+                        {sensitive && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-auth-orange bg-auth-orange/10">MOT SENSIBLE</span>}
                         {state?.flagged && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-auth-live bg-auth-live/10">SIGNALÉ</span>}
-                        {locallyHidden && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-auth-muted bg-white/5">MASQUÉ</span>}
+                        {state?.hidden && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-auth-muted bg-white/5">MASQUÉ DU FLUX</span>}
                       </div>
                       <p className={`mt-1 text-[13px] leading-5 break-words ${row.is_vote ? "text-auth-muted" : "text-auth-text"}`}>{row.message}</p>
                     </div>
                     <div className="flex items-start gap-1 opacity-60 group-hover:opacity-100 transition shrink-0">
-                      <button title={state?.flagged ? "Retirer le signalement" : "Signaler dans le panel"} onClick={() => setMessageState(row.id, { flagged: !state?.flagged })} className={`w-8 h-8 rounded-lg border border-auth-border flex items-center justify-center hover:bg-white/5 ${state?.flagged ? "text-auth-live border-auth-live/25 bg-auth-live/5" : "text-auth-muted"}`}><Flag size={14} /></button>
-                      <button title={state?.hidden ? "Réafficher le message" : "Masquer dans le panel"} onClick={() => setMessageState(row.id, { hidden: !state?.hidden })} className={`w-8 h-8 rounded-lg border border-auth-border flex items-center justify-center hover:bg-white/5 ${state?.hidden ? "text-auth-blue border-auth-blue/25 bg-auth-blue/5" : "text-auth-muted"}`}>{state?.hidden ? <Eye size={14} /> : <EyeOff size={14} />}</button>
-                      <button title="Voir le profil de modération" onClick={() => setSelectedUser(row.tiktok_user)} className="w-8 h-8 rounded-lg border border-auth-border text-auth-muted flex items-center justify-center hover:bg-white/5 hover:text-auth-text"><UserRoundSearch size={14} /></button>
+                      <button title={state?.flagged ? "Retirer le signalement" : "Marquer pour suivi"} onClick={() => setMessageState(row.id, { flagged: !state?.flagged })} className={`w-8 h-8 rounded-lg border border-auth-border flex items-center justify-center hover:bg-white/5 ${state?.flagged ? "text-auth-live border-auth-live/25 bg-auth-live/5" : "text-auth-muted"}`}><Flag size={14} /></button>
+                      <button title={state?.hidden ? "Réafficher dans le flux" : "Masquer du flux QuizzLiveFR"} onClick={() => setMessageState(row.id, { hidden: !state?.hidden })} className={`w-8 h-8 rounded-lg border border-auth-border flex items-center justify-center hover:bg-white/5 ${state?.hidden ? "text-auth-blue border-auth-blue/25 bg-auth-blue/5" : "text-auth-muted"}`}>{state?.hidden ? <Eye size={14} /> : <EyeOff size={14} />}</button>
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
+
           <div className="px-4 py-2.5 border-t border-auth-border flex items-center justify-between text-[10px] text-auth-mutedDim">
             <span>{filteredMessages.length} élément{filteredMessages.length > 1 ? "s" : ""} affiché{filteredMessages.length > 1 ? "s" : ""}</span>
-            <span className="hidden xl:inline">Modération interne QuizzLiveFR</span>
+            <span className="hidden xl:inline">Flux synchronisé depuis TikTok LIVE</span>
           </div>
         </section>
 
         <aside className="space-y-4">
           <section className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
             <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between">
-              <div><p className="text-xs font-bold text-auth-text">Profil de modération</p><p className="text-[10px] text-auth-muted mt-0.5">Utilisateur sélectionné</p></div>
-              <Shield size={16} className="text-auth-blue" />
-            </div>
-            {!selectedUser ? (
-              <div className="px-4 py-7 text-center"><UserRoundSearch size={20} className="text-auth-mutedDim mx-auto" /><p className="text-xs font-semibold text-auth-text mt-2">Aucun utilisateur sélectionné</p><p className="text-[10px] text-auth-muted mt-1 leading-4">Cliquez sur un pseudo dans le chat pour ouvrir son profil.</p></div>
-            ) : (
-              <div className="p-4">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-auth-blue to-auth-purple text-white text-xs font-bold flex items-center justify-center">{selectedUser.slice(0, 2).toUpperCase()}</div>
-                  <div className="min-w-0"><p className="text-sm font-bold text-auth-text truncate">@{selectedUser}</p><p className="text-[10px] text-auth-muted">{selectedUserRows.length} interaction{selectedUserRows.length > 1 ? "s" : ""} dans cette session</p></div>
-                </div>
-                <div className="grid grid-cols-3 gap-2 mb-4">
-                  <div className="rounded-lg border border-auth-border bg-auth-bg p-2.5"><p className="text-[9px] uppercase tracking-wide text-auth-mutedDim">Messages</p><p className="text-base font-bold text-auth-text mt-1">{selectedRealMessages}</p></div>
-                  <div className="rounded-lg border border-auth-border bg-auth-bg p-2.5"><p className="text-[9px] uppercase tracking-wide text-auth-mutedDim">Votes</p><p className="text-base font-bold text-auth-text mt-1">{selectedVotes}</p></div>
-                  <div className="rounded-lg border border-auth-border bg-auth-bg p-2.5"><p className="text-[9px] uppercase tracking-wide text-auth-mutedDim">Signalés</p><p className="text-base font-bold text-auth-text mt-1">{selectedFlags}</p></div>
-                </div>
-                <div className="space-y-2">
-                  <button onClick={() => setUserState(selectedUser, { watched: !selectedState?.watched })} className={`w-full h-9 rounded-lg border text-xs font-semibold flex items-center justify-center gap-2 ${selectedState?.watched ? "border-auth-orange/30 bg-auth-orange/10 text-auth-orange" : "border-auth-border text-auth-text hover:bg-white/5"}`}><ShieldAlert size={14} />{selectedState?.watched ? "Retirer de la surveillance" : "Mettre sous surveillance"}</button>
-                  <button onClick={() => setUserState(selectedUser, { hidden_locally: !selectedState?.hidden_locally })} className={`w-full h-9 rounded-lg border text-xs font-semibold flex items-center justify-center gap-2 ${selectedState?.hidden_locally ? "border-auth-blue/30 bg-auth-blue/10 text-auth-blue" : "border-auth-border text-auth-text hover:bg-white/5"}`}>{selectedState?.hidden_locally ? <Eye size={14} /> : <EyeOff size={14} />}{selectedState?.hidden_locally ? "Réafficher dans le panel" : "Masquer dans le panel"}</button>
-                  <button onClick={() => notify("Les sanctions TikTok (mute/ban) ne sont pas encore connectées au worker.")} className="w-full h-9 rounded-lg border border-auth-live/20 bg-auth-live/[0.035] text-auth-live/70 text-xs font-semibold flex items-center justify-center gap-2"><Ban size={14} />Sanction TikTok non connectée</button>
-                </div>
-                <div className="mt-4">
-                  <label className="text-[9px] font-bold uppercase tracking-[0.16em] text-auth-mutedDim">Note interne</label>
-                  <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} rows={3} placeholder="Ajouter une note de modération…" className="mt-1.5 w-full rounded-lg border border-auth-border bg-auth-bg p-2.5 text-xs text-auth-text outline-none focus:border-auth-blue resize-none placeholder:text-auth-mutedDim" />
-                  <button onClick={() => setUserState(selectedUser, { note: noteDraft })} className="mt-2 w-full h-8 rounded-lg bg-auth-blue/15 border border-auth-blue/25 text-auth-text text-[11px] font-semibold hover:bg-auth-blue/20">Enregistrer la note</button>
-                </div>
-              </div>
-            )}
-          </section>
-
-          <section className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
-            <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between">
-              <div><p className="text-xs font-bold text-auth-text">Mots surveillés</p><p className="text-[10px] text-auth-muted mt-0.5">Détection visuelle dans le chat</p></div>
+              <div><p className="text-xs font-bold text-auth-text">Mots surveillés</p><p className="text-[10px] text-auth-muted mt-0.5">Détection visuelle dans le flux</p></div>
               <AlertTriangle size={15} className="text-auth-orange" />
             </div>
             <div className="p-4">
               <div className="flex gap-2">
-                <input value={newTerm} onChange={(e) => setNewTerm(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addTerm(); }} placeholder="Ajouter un mot…" className="h-9 flex-1 min-w-0 rounded-lg border border-auth-border bg-auth-bg px-3 text-xs text-auth-text outline-none focus:border-auth-blue placeholder:text-auth-mutedDim" />
+                <input value={newTerm} onChange={(event) => setNewTerm(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addTerm(); }} placeholder="Ajouter un mot…" className="h-9 flex-1 min-w-0 rounded-lg border border-auth-border bg-auth-bg px-3 text-xs text-auth-text outline-none focus:border-auth-blue placeholder:text-auth-mutedDim" />
                 <button onClick={addTerm} disabled={!newTerm.trim()} className="w-9 h-9 rounded-lg bg-auth-blue/15 border border-auth-blue/25 text-auth-blue flex items-center justify-center disabled:opacity-40"><Plus size={15} /></button>
               </div>
 
-              <div className="mt-3 flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+              <div className="mt-3 flex flex-wrap gap-1.5 max-h-44 overflow-y-auto">
                 {terms.length === 0 ? (
-                  <div className="w-full py-4 text-center"><CheckCircle2 size={18} className="text-auth-mutedDim mx-auto" /><p className="text-[10px] text-auth-muted mt-2">Aucun mot surveillé.</p></div>
+                  <div className="w-full py-5 text-center"><CheckCircle2 size={18} className="text-auth-mutedDim mx-auto" /><p className="text-[10px] text-auth-muted mt-2">Aucun mot surveillé.</p></div>
                 ) : terms.map((term) => (
                   <div key={term.id} className={`inline-flex items-center gap-1.5 rounded-full border pl-2.5 pr-1 py-1 ${term.is_active ? "border-auth-orange/25 bg-auth-orange/[0.06]" : "border-auth-border bg-auth-bg opacity-60"}`}>
                     <button onClick={() => toggleTerm(term)} className={`w-1.5 h-1.5 rounded-full shrink-0 ${term.is_active ? "bg-auth-orange" : "bg-auth-mutedDim"}`} title={term.is_active ? "Désactiver" : "Activer"} />
@@ -442,17 +362,21 @@ export default function ChatModerationPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          </section>
 
-              <div className="mt-4 rounded-lg border border-auth-border bg-auth-bg overflow-hidden">
-                <div className="px-3 py-2.5 border-b border-auth-border flex items-center justify-between">
-                  <div className="flex items-center gap-2"><Shield size={13} className="text-auth-blue" /><span className="text-[10px] font-semibold text-auth-text">Protection automatique</span></div>
-                  <span className="text-[9px] font-bold text-auth-green bg-auth-green/10 rounded-full px-2 py-0.5">ACTIVE</span>
-                </div>
-                <div className="px-3 py-2.5 space-y-2 text-[10px]">
-                  <div className="flex items-center justify-between"><span className="text-auth-muted">Détection des mots</span><span className="text-auth-green font-semibold">Active</span></div>
-                  <div className="flex items-center justify-between"><span className="text-auth-muted">Masquage automatique</span><span className="text-auth-muted font-semibold">Désactivé</span></div>
-                  <div className="flex items-center justify-between"><span className="text-auth-muted">Sanctions TikTok</span><span className="text-auth-orange font-semibold">Non connectées</span></div>
-                </div>
+          <section className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
+            <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between">
+              <div><p className="text-xs font-bold text-auth-text">Contrôle QuizzLiveFR</p><p className="text-[10px] text-auth-muted mt-0.5">Ce que cette page peut réellement faire</p></div>
+              <ShieldCheck size={15} className="text-auth-blue" />
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="flex gap-3"><CheckCircle2 size={15} className="text-auth-green shrink-0 mt-0.5" /><div><p className="text-[11px] font-semibold text-auth-text">Voir messages et votes</p><p className="text-[10px] leading-4 text-auth-muted mt-0.5">Le flux reçu par le worker apparaît en temps réel.</p></div></div>
+              <div className="flex gap-3"><CheckCircle2 size={15} className="text-auth-green shrink-0 mt-0.5" /><div><p className="text-[11px] font-semibold text-auth-text">Détecter les mots sensibles</p><p className="text-[10px] leading-4 text-auth-muted mt-0.5">Les règles servent à repérer rapidement certains commentaires.</p></div></div>
+              <div className="flex gap-3"><CheckCircle2 size={15} className="text-auth-green shrink-0 mt-0.5" /><div><p className="text-[11px] font-semibold text-auth-text">Masquer dans votre flux</p><p className="text-[10px] leading-4 text-auth-muted mt-0.5">Le masquage concerne uniquement l'interface QuizzLiveFR.</p></div></div>
+              <div className="rounded-lg border border-auth-orange/20 bg-auth-orange/[0.045] p-3">
+                <p className="text-[10px] font-semibold text-auth-orange">Limite TikTok</p>
+                <p className="text-[10px] leading-4 text-auth-muted mt-1">Mute, blocage et bannissement TikTok ne sont pas disponibles via l'intégration actuelle. Aucun bouton de cette page ne prétend agir directement sur TikTok.</p>
               </div>
             </div>
           </section>
