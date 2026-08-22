@@ -293,17 +293,17 @@ export default function ChatLivePage() {
           </div>
 
           {!session ? (
-            <div className="min-h-[330px] flex flex-col items-center justify-center text-center px-6">
+            <div className="min-h-[360px] flex flex-col items-center justify-center text-center px-6">
               <div className="w-12 h-12 rounded-xl border border-auth-blue/20 bg-auth-blue/10 text-auth-blue flex items-center justify-center mb-3"><Radio size={20} /></div>
               <p className="text-sm font-semibold text-auth-text">Chat Live en attente</p>
               <p className="text-[11px] leading-5 text-auth-muted mt-1 max-w-md">Démarrez une session pour afficher ici les commentaires TikTok et les votes reçus par QuizzLiveFR.</p>
               <Link href="/admin/sessions-live" className="mt-4 h-9 px-4 rounded-lg text-xs font-semibold text-white flex items-center gap-2" style={{ background: "linear-gradient(90deg,#4C6FFF,#9B4DFF,#FF3D8E)" }}><Radio size={13} /> Démarrer une session</Link>
             </div>
           ) : filteredMessages.length === 0 ? (
-            <div className="min-h-[330px] flex flex-col items-center justify-center text-center px-6">
+            <div className="min-h-[360px] flex flex-col items-center justify-center text-center px-6">
               <div className="w-11 h-11 rounded-xl border border-auth-border bg-white/[0.025] text-auth-mutedDim flex items-center justify-center mb-3"><MessageSquare size={19} /></div>
               <p className="text-sm font-semibold text-auth-text">{messages.length === 0 ? "Chat encore silencieux" : "Aucun élément pour ce filtre"}</p>
-              <p className="text-[11px] leading-5 text-auth-muted mt-1">{messages.length === 0 ? "Le flux est prêt. Les prochains commentaires et votes apparaîtront automatiquement." : "Modifiez la recherche ou choisissez un autre filtre."}</p>
+              <p className="text-[11px] leading-5 text-auth-muted mt-1 max-w-md">{messages.length === 0 ? "La session est prête. Les prochains commentaires et votes reçus par QuizzLiveFR apparaîtront automatiquement." : "Modifiez la recherche ou choisissez un autre filtre."}</p>
             </div>
           ) : (
             <div className="max-h-[610px] overflow-y-auto">
@@ -350,16 +350,16 @@ export default function ChatLivePage() {
             </div>
             <div className="p-4 space-y-3">
               <div className="flex items-center justify-between gap-4">
-                <span className="text-[11px] text-auth-muted">Session QuizzLiveFR</span>
-                <span className={`text-[10px] font-bold uppercase inline-flex items-center gap-1.5 ${session ? "text-auth-green" : "text-auth-mutedDim"}`}><span className={`w-1.5 h-1.5 rounded-full ${session ? "bg-auth-green" : "bg-auth-mutedDim"}`} />{session ? "Active" : "Hors ligne"}</span>
+                <span className="text-[11px] font-medium text-auth-muted">Session QuizzLiveFR</span>
+                <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase inline-flex items-center gap-1.5 border ${session ? "text-auth-green bg-auth-green/[0.06] border-auth-green/20" : "text-auth-muted bg-white/[0.025] border-auth-border"}`}><span className={`w-1.5 h-1.5 rounded-full ${session ? "bg-auth-green" : "bg-auth-mutedDim"}`} />{session ? "Active" : "Hors ligne"}</span>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <span className="text-[11px] text-auth-muted">Flux TikTok reçu</span>
-                <span className={`text-[10px] font-semibold ${hasTikTokData ? "text-auth-green" : session ? "text-auth-orange" : "text-auth-mutedDim"}`}>{hasTikTokData ? "Données reçues" : session ? "En attente" : "Inactif"}</span>
+                <span className="text-[11px] font-medium text-auth-muted">Flux TikTok reçu</span>
+                <span className={`max-w-[150px] text-right text-[10px] font-bold ${hasTikTokData ? "text-auth-green" : session ? "text-auth-orange" : "text-auth-mutedDim"}`}>{hasTikTokData ? "Données reçues" : session ? "En attente de données TikTok" : "Inactif"}</span>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <span className="text-[11px] text-auth-muted">Règles sensibles</span>
-                <span className="text-[10px] font-semibold text-auth-text">{activeRuleCount} active{activeRuleCount > 1 ? "s" : ""}</span>
+                <span className="text-[11px] font-medium text-auth-muted">Règles sensibles</span>
+                <span className="px-2 py-1 rounded-md border border-auth-border bg-auth-bg text-[10px] font-bold text-auth-text">{activeRuleCount} active{activeRuleCount > 1 ? "s" : ""}</span>
               </div>
               <div className="rounded-lg border border-auth-border bg-auth-bg px-3 py-2.5">
                 <p className="text-[10px] leading-4 text-auth-muted">Les actions « À revoir » et « Masquer » restent internes à QuizzLiveFR. Elles ne modifient pas le chat TikTok.</p>
