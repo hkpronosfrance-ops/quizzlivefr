@@ -53,7 +53,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: "Contenu",
     items: [
-      { label: "Banque de questions", icon: Database },
+      { label: "Banque de questions", icon: Database, href: "/admin/question-bank" },
       { label: "Imports / Exports", icon: Upload },
     ],
   },
