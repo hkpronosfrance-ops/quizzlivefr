@@ -7,11 +7,14 @@ import {
   Bell,
   BellRing,
   CheckCheck,
+  CircleCheck,
   Clock3,
+  Mail,
   Radio,
   RefreshCw,
   Settings2,
   ShieldAlert,
+  Smartphone,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -44,6 +47,8 @@ type Preferences = {
   sound_enabled: boolean;
 };
 
+type IconType = typeof Bell;
+
 function Switch({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
     <button
@@ -52,8 +57,25 @@ function Switch({ checked, onChange }: { checked: boolean; onChange: () => void 
       onClick={onChange}
       className={`relative h-6 w-11 rounded-full border transition ${checked ? "border-auth-blue bg-auth-blue" : "border-auth-border bg-black/20"}`}
     >
-      <span className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white transition-all ${checked ? "left-[22px]" : "left-1"}`} />
+      <span className={`absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white transition-all ${checked ? "left-[21px]" : "left-[3px]"}`} />
     </button>
+  );
+}
+
+function MetricCard({ icon: Icon, label, value, helper, color }: { icon: IconType; label: string; value: number; helper: string; color: string }) {
+  return (
+    <div className="rounded-xl border border-auth-border bg-auth-panel px-4 py-4 min-w-0">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: `${color}18`, color }}>
+          <Icon size={18} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-auth-mutedDim truncate">{label}</p>
+          <p className="mt-1 text-[28px] leading-none font-bold text-auth-text tracking-tight">{value}</p>
+          <p className="mt-1.5 text-[10px] leading-4 text-auth-muted">{helper}</p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -177,20 +199,20 @@ export default function NotificationsPage() {
 
   return (
     <main className="px-8 py-7 max-w-[1800px] mx-auto">
-      <div className="flex items-start justify-between gap-6 mb-6">
+      <div className="flex items-start justify-between gap-6 mb-5">
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-3xl font-bold text-auth-text tracking-tight">Notifications</h1>
-            {unread > 0 && <span className="rounded-full bg-auth-pink/15 px-2 py-1 text-[10px] font-bold text-auth-pink">{unread} NON LUE{unread > 1 ? "S" : ""}</span>}
+            {unread > 0 && <span className="rounded-full border border-auth-pink/25 bg-auth-pink/10 px-2 py-1 text-[9px] font-bold text-auth-pink">{unread} NON LUE{unread > 1 ? "S" : ""}</span>}
           </div>
-          <p className="text-auth-muted text-sm mt-1">Suivez les événements importants réellement détectés par QuizzLiveFR.</p>
+          <p className="text-auth-muted text-sm mt-1">Suivez les événements importants détectés par QuizzLiveFR.</p>
           <p className="text-auth-mutedDim text-[10px] mt-2">{lastUpdated ? `Mis à jour à ${lastUpdated.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "Synchronisation en cours"}</p>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => refresh(true)} className="h-9 px-3 rounded-lg border border-auth-border bg-auth-panel text-xs font-semibold text-auth-text flex items-center gap-2 hover:bg-white/5 transition">
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /> Actualiser
           </button>
-          <button onClick={markAllRead} disabled={unread === 0} className="h-9 px-3 rounded-lg border border-auth-border bg-auth-panel text-xs font-semibold text-auth-text flex items-center gap-2 hover:bg-white/5 disabled:opacity-40 transition">
+          <button onClick={markAllRead} disabled={unread === 0} className="h-9 px-3 rounded-lg border border-auth-border bg-auth-panel text-xs font-semibold text-auth-text flex items-center gap-2 hover:bg-white/5 disabled:opacity-35 transition">
             <CheckCheck size={14} /> Tout marquer comme lu
           </button>
           <AdminTopControls />
@@ -198,40 +220,37 @@ export default function NotificationsPage() {
       </div>
 
       <section className="grid grid-cols-4 gap-3 mb-4">
-        {[
-          [BellRing, "NON LUES", unread, "Demandent encore votre attention", "#9B4DFF"],
-          [Clock3, "AUJOURD’HUI", today, "Événements enregistrés aujourd’hui", "#4C6FFF"],
-          [Radio, "ÉVÉNEMENTS SESSION", sessionEvents, "Démarrages et fins de session", "#22c55e"],
-          [ShieldAlert, "MOTS SENSIBLES", sensitive, "Détections issues de vos règles", "#f59e0b"],
-        ].map(([Icon, label, value, helper, color]) => {
-          const MetricIcon = Icon as typeof Bell;
-          return (
-            <div key={String(label)} className="rounded-xl border border-auth-border bg-auth-panel p-4">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${color}18`, color: String(color) }}><MetricIcon size={18} /></div>
-                <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-auth-mutedDim">{String(label)}</p><p className="text-[26px] leading-none font-bold text-auth-text mt-1">{String(value)}</p><p className="text-[10px] text-auth-muted mt-1.5">{String(helper)}</p></div>
-              </div>
-            </div>
-          );
-        })}
+        <MetricCard icon={BellRing} label="NON LUES" value={unread} helper="Demandent encore votre attention" color="#9B4DFF" />
+        <MetricCard icon={Clock3} label="AUJOURD’HUI" value={today} helper="Événements enregistrés aujourd’hui" color="#4C6FFF" />
+        <MetricCard icon={Radio} label="ÉVÉNEMENTS SESSION" value={sessionEvents} helper="Démarrages et fins de session" color="#22c55e" />
+        <MetricCard icon={ShieldAlert} label="MOTS SENSIBLES" value={sensitive} helper="Détections issues de vos règles" color="#f59e0b" />
       </section>
 
-      <section className="grid grid-cols-[minmax(0,1fr)_340px] gap-4 items-start">
-        <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden min-h-[470px]">
+      <section className="grid grid-cols-[minmax(0,1fr)_360px] gap-4 items-start">
+        <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden min-h-[500px]">
           <div className="h-14 px-4 border-b border-auth-border flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5">
-              {filters.map((item) => <button key={item.key} onClick={() => setFilter(item.key)} className={`h-8 rounded-lg px-3 text-[11px] font-semibold transition ${filter === item.key ? "bg-auth-blue/15 text-auth-text border border-auth-blue/30" : "text-auth-muted hover:text-auth-text"}`}>{item.label} <span className="ml-1 text-[9px] opacity-65">{item.count}</span></button>)}
+              {filters.map((item) => (
+                <button key={item.key} onClick={() => setFilter(item.key)} className={`h-8 rounded-lg px-3 text-[11px] font-semibold transition ${filter === item.key ? "bg-auth-blue/15 text-auth-text border border-auth-blue/30" : "text-auth-muted hover:text-auth-text"}`}>
+                  {item.label}
+                  <span className={`ml-1.5 inline-flex min-w-4 h-4 items-center justify-center rounded px-1 text-[9px] ${item.count > 0 ? "bg-white/7 text-auth-text" : "text-auth-mutedDim"}`}>{item.count}</span>
+                </button>
+              ))}
             </div>
             <span className="text-[10px] text-auth-mutedDim">{filtered.length} élément{filtered.length !== 1 ? "s" : ""}</span>
           </div>
 
           {loading ? (
-            <div className="h-[410px] flex items-center justify-center text-auth-muted text-sm">Chargement des notifications…</div>
+            <div className="h-[440px] flex items-center justify-center text-auth-muted text-sm">Chargement des notifications…</div>
           ) : filtered.length === 0 ? (
-            <div className="h-[410px] flex flex-col items-center justify-center text-center px-6">
-              <div className="w-12 h-12 rounded-2xl border border-auth-border bg-black/20 flex items-center justify-center text-auth-muted mb-3"><Bell size={20} /></div>
-              <p className="text-auth-text font-semibold text-sm">Aucune notification</p>
-              <p className="text-auth-muted text-xs mt-1 max-w-md">Les événements importants apparaîtront ici automatiquement dès qu’ils seront détectés.</p>
+            <div className="h-[440px] flex flex-col items-center justify-center text-center px-6">
+              <div className="w-14 h-14 rounded-2xl border border-auth-blue/20 bg-auth-blue/[0.06] flex items-center justify-center text-auth-blue mb-4"><BellRing size={23} /></div>
+              <p className="text-auth-text font-semibold text-[15px]">Centre de notifications prêt</p>
+              <p className="text-auth-muted text-xs mt-1.5 max-w-[430px] leading-5">Aucune alerte pour le moment. Les débuts et fins de session ainsi que les détections sensibles apparaîtront ici automatiquement.</p>
+              <div className="mt-5 flex items-center gap-2 text-[10px] text-auth-muted">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-auth-border bg-black/15 px-2.5 py-1.5"><CircleCheck size={12} className="text-auth-live" /> Suivi interne actif</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-auth-border bg-black/15 px-2.5 py-1.5"><ShieldAlert size={12} className="text-amber-400" /> Règles sensibles surveillées</span>
+              </div>
             </div>
           ) : (
             <div className="divide-y divide-auth-border/80">
@@ -256,7 +275,10 @@ export default function NotificationsPage() {
 
         <aside className="space-y-4">
           <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
-            <div className="px-4 py-3 border-b border-auth-border flex items-center gap-2"><Settings2 size={15} className="text-auth-blue" /><div><p className="text-auth-text text-xs font-bold">Préférences</p><p className="text-auth-mutedDim text-[10px]">Notifications internes au panel</p></div></div>
+            <div className="px-4 py-3 border-b border-auth-border flex items-center gap-2">
+              <Settings2 size={15} className="text-auth-blue" />
+              <div><p className="text-auth-text text-xs font-bold">Préférences</p><p className="text-auth-mutedDim text-[10px]">Événements à faire remonter</p></div>
+            </div>
             <div className="p-4 space-y-4">
               {prefs && [
                 ["session_started", "Début de session", "Quand une session démarre", Radio],
@@ -265,20 +287,47 @@ export default function NotificationsPage() {
               ].map(([key, title, helper, Icon]) => {
                 const PreferenceIcon = Icon as typeof Bell;
                 const prefKey = key as "session_started" | "session_ended" | "sensitive_message";
-                return <div key={prefKey} className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg border border-auth-border flex items-center justify-center text-auth-muted"><PreferenceIcon size={14} /></div><div className="flex-1 min-w-0"><p className="text-auth-text text-xs font-semibold">{String(title)}</p><p className="text-auth-mutedDim text-[10px] mt-0.5">{String(helper)}</p></div><Switch checked={prefs[prefKey]} onChange={() => togglePreference(prefKey)} /></div>;
+                return (
+                  <div key={prefKey} className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg border border-auth-border bg-black/15 flex items-center justify-center text-auth-muted"><PreferenceIcon size={14} /></div>
+                    <div className="flex-1 min-w-0"><p className="text-auth-text text-xs font-semibold">{String(title)}</p><p className="text-auth-mutedDim text-[10px] mt-0.5">{String(helper)}</p></div>
+                    <Switch checked={prefs[prefKey]} onChange={() => togglePreference(prefKey)} />
+                  </div>
+                );
               })}
+            </div>
+            <div className="px-4 py-3 border-t border-auth-border bg-black/[0.08] flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg border border-auth-border flex items-center justify-center text-auth-muted">{prefs?.sound_enabled ? <Volume2 size={14} className="text-auth-purple" /> : <VolumeX size={14} />}</div>
+              <div className="flex-1"><p className="text-auth-text text-xs font-semibold">Alerte sonore</p><p className="text-auth-mutedDim text-[10px] mt-0.5">Dans ce navigateur</p></div>
+              {prefs && <Switch checked={prefs.sound_enabled} onChange={() => togglePreference("sound_enabled")} />}
             </div>
           </div>
 
           <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
-            <div className="px-4 py-3 border-b border-auth-border flex items-center gap-2">{prefs?.sound_enabled ? <Volume2 size={15} className="text-auth-purple" /> : <VolumeX size={15} className="text-auth-muted" />}<div><p className="text-auth-text text-xs font-bold">Alerte sonore</p><p className="text-auth-mutedDim text-[10px]">Dans ce navigateur</p></div></div>
-            <div className="p-4 flex items-center gap-3"><div className="flex-1"><p className="text-auth-text text-xs font-semibold">Son des nouvelles alertes</p><p className="text-auth-mutedDim text-[10px] mt-1">Préférence enregistrée. La lecture sonore sera utilisée par le centre lorsque le navigateur l’autorise.</p></div>{prefs && <Switch checked={prefs.sound_enabled} onChange={() => togglePreference("sound_enabled")} />}</div>
-          </div>
-
-          <div className="rounded-xl border border-auth-blue/20 bg-auth-blue/[0.04] p-4">
-            <p className="text-auth-text text-xs font-bold mb-1">Canaux disponibles</p>
-            <p className="text-auth-muted text-[10px] leading-5">Pour le moment, les alertes sont internes à QuizzLiveFR. Aucun email, SMS ou push externe n’est envoyé.</p>
-            <Link href="/admin/chat-moderation" className="inline-flex mt-3 text-[10px] font-semibold text-auth-blue hover:underline">Gérer les mots surveillés →</Link>
+            <div className="px-4 py-3 border-b border-auth-border">
+              <p className="text-auth-text text-xs font-bold">Canaux de notification</p>
+              <p className="text-auth-mutedDim text-[10px] mt-0.5">Modes de réception actuellement disponibles</p>
+            </div>
+            <div className="p-3 space-y-2">
+              <div className="rounded-lg border border-auth-live/20 bg-auth-live/[0.035] px-3 py-2.5 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-auth-live/10 text-auth-live flex items-center justify-center"><Bell size={14} /></div>
+                <div className="flex-1"><p className="text-auth-text text-xs font-semibold">Panel QuizzLiveFR</p><p className="text-auth-mutedDim text-[10px] mt-0.5">Centre + cloche du header</p></div>
+                <span className="text-[9px] font-bold text-auth-live">ACTIF</span>
+              </div>
+              <div className="rounded-lg border border-auth-border px-3 py-2.5 flex items-center gap-3 opacity-70">
+                <div className="w-8 h-8 rounded-lg bg-white/[0.03] text-auth-muted flex items-center justify-center"><Mail size={14} /></div>
+                <div className="flex-1"><p className="text-auth-text text-xs font-semibold">Email</p><p className="text-auth-mutedDim text-[10px] mt-0.5">Aucun service configuré</p></div>
+                <span className="text-[9px] font-bold text-auth-mutedDim">NON CONFIGURÉ</span>
+              </div>
+              <div className="rounded-lg border border-auth-border px-3 py-2.5 flex items-center gap-3 opacity-70">
+                <div className="w-8 h-8 rounded-lg bg-white/[0.03] text-auth-muted flex items-center justify-center"><Smartphone size={14} /></div>
+                <div className="flex-1"><p className="text-auth-text text-xs font-semibold">Push / mobile</p><p className="text-auth-mutedDim text-[10px] mt-0.5">Aucun canal externe connecté</p></div>
+                <span className="text-[9px] font-bold text-auth-mutedDim">NON CONFIGURÉ</span>
+              </div>
+            </div>
+            <div className="px-4 py-3 border-t border-auth-border bg-auth-blue/[0.025]">
+              <Link href="/admin/chat-moderation" className="text-[10px] font-semibold text-auth-blue hover:underline">Gérer les mots surveillés →</Link>
+            </div>
           </div>
         </aside>
       </section>
