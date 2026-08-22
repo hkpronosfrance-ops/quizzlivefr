@@ -247,7 +247,7 @@ export default function LiveStatisticsPage() {
     () => (displayedQuestion ? answers.filter((a) => a.question_id === displayedQuestion.id) : []),
     [answers, displayedQuestion],
   );
-  const questionContextLabel = activeQuestion ? "Question en cours" : lastQuestion ? "Dernière question" : "Aucune question jouée";
+  const questionContextLabel = activeQuestion ? "Question en cours" : lastQuestion ? "Dernière question" : "En attente de la première question";
 
   const playedQuestions = useMemo(
     () => questions.filter((q) => Boolean(q.started_at)),
@@ -419,13 +419,13 @@ export default function LiveStatisticsPage() {
           </section>
 
           {!hasLiveData && (
-            <section className="rounded-xl border border-auth-blue/25 bg-auth-blue/[0.045] px-4 py-3 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-auth-blue/10 flex items-center justify-center shrink-0">
-                <Radio size={17} className="text-auth-blue" />
+            <section className="rounded-xl border border-auth-blue/25 bg-auth-blue/[0.045] px-4 py-2.5 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-auth-blue/10 flex items-center justify-center shrink-0">
+                <Radio size={16} className="text-auth-blue" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-semibold text-auth-text">Session en cours — en attente de la première question</p>
-                <p className="text-[10px] sm:text-[11px] leading-5 text-auth-muted">Les statistiques apparaîtront automatiquement dès le lancement d’une question ou les premières interactions TikTok LIVE.</p>
+                <p className="text-[10px] sm:text-[11px] leading-4 text-auth-muted mt-0.5">Les statistiques apparaîtront automatiquement dès le lancement d’une question ou les premières interactions TikTok LIVE.</p>
               </div>
               <Link href="/admin/sessions-live" className="hidden sm:block text-[11px] font-semibold text-auth-blue hover:text-auth-text transition whitespace-nowrap">Ouvrir la session →</Link>
             </section>
@@ -469,7 +469,7 @@ export default function LiveStatisticsPage() {
                     <p className="text-sm font-bold text-auth-text">Répartition des réponses</p>
                     {displayedQuestion && <span className={`text-[9px] font-bold uppercase tracking-wider rounded-full px-2 py-1 ${activeQuestion ? "bg-auth-positive/10 text-auth-positive" : "bg-white/5 text-auth-muted"}`}>{questionContextLabel}</span>}
                   </div>
-                  <p className="text-[11px] text-auth-muted mt-1 truncate">{displayedQuestion ? displayedQuestion.text : "Aucune question jouée"}</p>
+                  <p className="text-[11px] text-auth-muted mt-1 truncate">{displayedQuestion ? displayedQuestion.text : "En attente de la première question"}</p>
                 </div>
                 {displayedQuestion && displayedQuestionAnswers.length > 0 ? (
                   <div className="p-4 lg:p-5 grid grid-cols-[125px_1fr] gap-4 items-center">
@@ -493,7 +493,7 @@ export default function LiveStatisticsPage() {
                     </div>
                   </div>
                 ) : (
-                  <CompactEmpty title={displayedQuestion ? "Aucune réponse pour cette question" : "Aucune question jouée"} description={displayedQuestion ? "La répartition A/B/C/D s’affichera dès le premier vote." : "Lancez une première question depuis la Session Live."} />
+                  <CompactEmpty title={displayedQuestion ? "Aucune réponse pour cette question" : "En attente de la première question"} description={displayedQuestion ? "La répartition A/B/C/D s’affichera dès le premier vote." : "Lancez une première question depuis la Session Live."} />
                 )}
               </div>
 
