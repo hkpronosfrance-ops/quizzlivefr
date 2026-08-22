@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
+  BookOpen,
   CheckCircle2,
   Clock3,
   Crown,
@@ -302,7 +303,7 @@ export default function SessionsLivePage() {
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-auth-text font-bold text-2xl lg:text-3xl tracking-tight">Session Live</h1>
-            {sessionId && <span className="inline-flex items-center gap-1.5 rounded-full bg-auth-live/15 px-2.5 py-1 text-[10px] font-bold text-auth-live"><span className="w-1.5 h-1.5 rounded-full bg-auth-live animate-pulse" /> SESSION ACTIVE</span>}
+            {sessionId && <span className="inline-flex items-center gap-1.5 rounded-full bg-auth-live/15 px-2.5 py-1 text-[10px] font-bold text-auth-live"><span className="w-1.5 h-1.5 rounded-full bg-auth-live animate-pulse" /> SESSION EN COURS</span>}
           </div>
           <p className="text-auth-muted text-sm mt-1">Pilotez votre quiz TikTok LIVE et suivez les interactions en temps réel.</p>
           <p className="text-auth-mutedDim text-[10px] mt-2">{loadingSession ? "Recherche d'une session active…" : sessionId ? `Session #${sessionId.slice(0, 8).toUpperCase()} · démarrée à ${new Date(sessionStartedAt!).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "Aucune session active"}</p>
@@ -342,7 +343,7 @@ export default function SessionsLivePage() {
               <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
                 <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between gap-3">
                   <div><p className="text-auth-text text-sm font-bold">Question en cours</p><p className="text-auth-muted text-[10px] mt-0.5">État réel de la diffusion</p></div>
-                  {activeQuestion ? <span className={`rounded-full px-2.5 py-1 text-[9px] font-bold ${isPaused ? "bg-[#F5A623]/15 text-[#F5A623]" : isQuestionLive ? "bg-auth-live/15 text-auth-live" : "bg-auth-blue/15 text-auth-blue"}`}>{isPaused ? "EN PAUSE" : isQuestionLive ? "EN DIRECT" : "TEMPS ÉCOULÉ"}</span> : <span className="rounded-full bg-white/5 px-2.5 py-1 text-[9px] font-bold text-auth-muted">AUCUNE QUESTION</span>}
+                  {activeQuestion ? <span className={`rounded-full px-2.5 py-1 text-[9px] font-bold ${isPaused ? "bg-[#F5A623]/15 text-[#F5A623]" : isQuestionLive ? "bg-auth-live/15 text-auth-live" : "bg-auth-blue/15 text-auth-blue"}`}>{isPaused ? "EN PAUSE" : isQuestionLive ? "EN DIRECT" : "TEMPS ÉCOULÉ"}</span> : <span className="rounded-full bg-white/5 px-2.5 py-1 text-[9px] font-bold text-auth-muted">EN ATTENTE</span>}
                 </div>
                 {activeQuestion ? (
                   <div className="p-4 lg:p-5 grid grid-cols-1 lg:grid-cols-[1fr_190px] gap-5">
@@ -375,13 +376,17 @@ export default function SessionsLivePage() {
               </div>
 
               <form onSubmit={launchQuestion} className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
-                <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between"><div><p className="text-auth-text text-sm font-bold">Prochaine question</p><p className="text-auth-muted text-[10px] mt-0.5">Saisie manuelle — sélection depuis la Banque de questions à venir</p></div><span className="text-[9px] text-auth-mutedDim">A et B requis</span></div>
+                <div className="px-4 py-3 border-b border-auth-border flex items-center justify-between gap-3 flex-wrap">
+                  <div><p className="text-auth-text text-sm font-bold">Prochaine question</p><p className="text-auth-muted text-[10px] mt-0.5">Saisie manuelle pour le moment.</p></div>
+                  <button type="button" disabled className="inline-flex items-center gap-2 border border-auth-border rounded-lg px-3 py-2 text-[10px] font-semibold text-auth-mutedDim opacity-60 cursor-not-allowed"><BookOpen size={13} />Choisir dans la Banque <span className="rounded bg-auth-blue/10 text-auth-blue px-1.5 py-0.5 text-[8px] uppercase tracking-wide">Bientôt</span></button>
+                </div>
                 <div className="p-4 space-y-3">
+                  <div className="rounded-lg border border-auth-border bg-auth-bg/35 px-3 py-2 flex items-center gap-2 text-[10px] text-auth-muted"><CheckCircle2 size={13} className="text-auth-blue shrink-0" /><span>La question ainsi que les réponses <strong className="text-auth-text font-semibold">A et B</strong> sont obligatoires. C et D restent optionnelles.</span></div>
                   <input disabled={!sessionId || launching} value={text} onChange={(event) => setText(event.target.value)} placeholder="Saisissez la question…" className="w-full bg-auth-bg border border-auth-border rounded-lg px-3.5 py-3 text-xs text-auth-text outline-none focus:border-auth-blue disabled:opacity-50" />
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                     {CHOICES.map(({ key, label, color }) => <div key={key} className="bg-auth-bg border border-auth-border rounded-lg px-3 py-2.5"><div className="flex items-center gap-2 mb-2"><button type="button" onClick={() => setCorrect(key)} className="w-6 h-6 rounded flex items-center justify-center text-white text-[10px] font-bold" style={{ background: color }}>{label}</button><span className="text-[9px] uppercase tracking-[0.12em] font-bold text-auth-mutedDim">Réponse {label}</span>{correct === key && <span className="ml-auto text-[9px] font-bold text-auth-positive">CORRECTE</span>}</div><input disabled={!sessionId || launching} value={choiceValues[key]} onChange={(event) => choiceSetters[key](event.target.value)} placeholder={key === "a" || key === "b" ? "Requis" : "Optionnel"} className="w-full bg-transparent text-auth-text text-xs outline-none placeholder:text-auth-mutedDim disabled:opacity-50" /></div>)}
                   </div>
-                  <button disabled={!canLaunch} className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-xs font-bold text-white bg-gradient-to-r from-[#4C6FFF] via-[#9B4DFF] to-[#FF3D8E] disabled:opacity-35 disabled:cursor-not-allowed">{launching ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}{activeQuestion ? "Lancer la question suivante" : "Lancer la question"}</button>
+                  <button disabled={!canLaunch} className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-xs font-bold text-white bg-gradient-to-r from-[#4C6FFF] via-[#9B4DFF] to-[#FF3D8E] transition-opacity disabled:opacity-30 disabled:cursor-not-allowed">{launching ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}{activeQuestion ? "Lancer la question suivante" : "Lancer la question"}</button>
                 </div>
               </form>
             </div>
