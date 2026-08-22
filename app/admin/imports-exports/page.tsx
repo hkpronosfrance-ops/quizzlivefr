@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock3,
   Copy,
   Database,
   Download,
@@ -11,6 +12,7 @@ import {
   FileSpreadsheet,
   FileUp,
   FolderOpen,
+  History,
   RefreshCw,
   ShieldCheck,
   Upload,
@@ -45,6 +47,17 @@ type PreviewRow = {
 };
 type DuplicateMode = "skip" | "replace" | "import";
 type ExistingQuestion = { id: string; text: string };
+type ImportHistory = {
+  id: string;
+  file_name: string;
+  mode: DuplicateMode;
+  total_rows: number;
+  added_count: number;
+  replaced_count: number;
+  ignored_count: number;
+  error_count: number;
+  created_at: string;
+};
 
 const EXPECTED = [
   "question",
@@ -58,6 +71,7 @@ const EXPECTED = [
   "duree",
   "active",
 ];
+
 const DIFF: Record<string, "easy" | "medium" | "hard"> = {
   facile: "easy",
   easy: "easy",
@@ -114,6 +128,21 @@ function norm(v: string) {
   return v.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
 }
 
+function modeLabel(mode: DuplicateMode) {
+  if (mode === "replace") return "Remplacement";
+  if (mode === "import") return "Tout importer";
+  return "Doublons ignorés";
+}
+
+function shortDate(value: string) {
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 export default function ImportsExportsPage() {
   const db = useMemo(() => supabaseBrowser(), []);
   const notify = useAdminToast();
@@ -121,22 +150,24 @@ export default function ImportsExportsPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [bankCount, setBankCount] = useState(0);
   const [activeCount, setActiveCount] = useState(0);
+  const [history, setHistory] = useState<ImportHistory[]>([]);
   const [fileName, setFileName] = useState("");
   const [preview, setPreview] = useState<PreviewRow[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [duplicateMode, setDuplicateMode] = useState<DuplicateMode>("skip");
-  const [lastImport, setLastImport] = useState<{ name: string; count: number; at: Date } | null>(null);
 
   async function loadMeta() {
-    const [{ data: cats }, { count: total }, { count: active }] = await Promise.all([
+    const [{ data: cats }, { count: total }, { count: active }, { data: recent }] = await Promise.all([
       db.from("categories").select("id,name").order("name"),
       db.from("question_bank").select("id", { count: "exact", head: true }),
       db.from("question_bank").select("id", { count: "exact", head: true }).eq("is_active", true),
+      db.from("import_history").select("*").order("created_at", { ascending: false }).limit(5),
     ]);
     setCategories((cats ?? []) as Category[]);
     setBankCount(total ?? 0);
     setActiveCount(active ?? 0);
+    setHistory((recent ?? []) as ImportHistory[]);
   }
 
   async function loadExistingQuestions() {
@@ -160,6 +191,7 @@ export default function ImportsExportsPage() {
   const duplicateRows = validRows.filter((r) => r.duplicate);
   const cleanRows = validRows.filter((r) => !r.duplicate);
   const importableCount = duplicateMode === "skip" ? cleanRows.length : validRows.length;
+  const lastImport = history[0];
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -268,30 +300,49 @@ export default function ImportsExportsPage() {
     if (!importableCount) return;
     setImporting(true);
     try {
-      let processed = 0;
+      let added = 0;
+      let replaced = 0;
+      let ignored = 0;
+
       if (duplicateMode === "skip") {
         const payload = cleanRows.map((r) => r.question!).map(({ category_name, ...q }) => q);
-        processed = await insertInBatches(payload);
+        added = await insertInBatches(payload);
+        ignored = duplicateRows.length;
       } else if (duplicateMode === "import") {
         const payload = validRows.map((r) => r.question!).map(({ category_name, ...q }) => q);
-        processed = await insertInBatches(payload);
+        added = await insertInBatches(payload);
       } else {
         const byQuestion = new Map<string, PreviewRow>();
         validRows.forEach((row) => row.question && byQuestion.set(norm(row.question.text), row));
         const finalRows = [...byQuestion.values()];
         const toInsert = finalRows.filter((r) => !r.duplicateId);
         const toUpdate = finalRows.filter((r) => r.duplicateId);
-        processed += await insertInBatches(toInsert.map((r) => r.question!).map(({ category_name, ...q }) => q));
+        added = await insertInBatches(toInsert.map((r) => r.question!).map(({ category_name, ...q }) => q));
+        ignored = Math.max(0, validRows.length - finalRows.length);
         for (const row of toUpdate) {
           const { category_name, ...payload } = row.question!;
           const { error } = await db.from("question_bank").update(payload).eq("id", row.duplicateId!);
           if (error) throw error;
-          processed++;
+          replaced++;
         }
       }
 
-      setLastImport({ name: fileName, count: processed, at: new Date() });
-      notify(`${processed} question${processed > 1 ? "s" : ""} traitée${processed > 1 ? "s" : ""} dans la banque.`);
+      const { error: historyError } = await db.from("import_history").insert({
+        file_name: fileName,
+        mode: duplicateMode,
+        total_rows: preview.length,
+        added_count: added,
+        replaced_count: replaced,
+        ignored_count: ignored,
+        error_count: invalidRows.length,
+      });
+      if (historyError) throw historyError;
+
+      const parts = [`${added} ajoutée${added > 1 ? "s" : ""}`];
+      if (replaced) parts.push(`${replaced} remplacée${replaced > 1 ? "s" : ""}`);
+      if (ignored) parts.push(`${ignored} ignorée${ignored > 1 ? "s" : ""}`);
+      if (invalidRows.length) parts.push(`${invalidRows.length} erreur${invalidRows.length > 1 ? "s" : ""}`);
+      notify(`Import terminé · ${parts.join(" · ")}.`);
       clearFile();
       await loadMeta();
     } catch (error) {
@@ -361,12 +412,12 @@ export default function ImportsExportsPage() {
           { l: "Questions en banque", v: bankCount, h: "Catalogue actuellement enregistré", i: Database, c: "#8B5CF6" },
           { l: "Questions actives", v: activeCount, h: "Disponibles pour les sessions", i: CheckCircle2, c: "#22C55E" },
           { l: "Catégories", v: categories.length, h: "Catégories reconnues à l'import", i: FolderOpen, c: "#38BDF8" },
-          { l: "Dernier import", v: lastImport ? lastImport.count : "—", h: lastImport ? lastImport.name : "Aucun import durant cette visite", i: FileUp, c: "#F59E0B" },
+          { l: "Dernier import", v: lastImport ? lastImport.added_count + lastImport.replaced_count : "—", h: lastImport ? lastImport.file_name : "Aucun historique", i: FileUp, c: "#F59E0B" },
         ].map((m) => (
           <div key={m.l} className="rounded-xl border border-auth-border bg-auth-panel p-4">
             <div className="flex gap-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${m.c}18`, color: m.c }}><m.i size={18}/></div>
-              <div><p className="text-[10px] uppercase tracking-[.15em] font-bold text-auth-mutedDim">{m.l}</p><p className="text-2xl font-bold text-auth-text mt-1">{m.v}</p><p className="text-[11px] text-auth-muted mt-1">{m.h}</p></div>
+              <div><p className="text-[10px] uppercase tracking-[.15em] font-bold text-auth-mutedDim">{m.l}</p><p className="text-2xl font-bold text-auth-text mt-1">{m.v}</p><p className="text-[11px] text-auth-muted mt-1 truncate max-w-[240px]">{m.h}</p></div>
             </div>
           </div>
         ))}
@@ -459,6 +510,25 @@ export default function ImportsExportsPage() {
           <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
             <div className="px-5 py-4 border-b border-auth-border"><h2 className="text-sm font-bold text-auth-text">Format d'import</h2><p className="text-[11px] text-auth-muted mt-1">Utilisez notre modèle pour éviter les erreurs de colonnes.</p></div>
             <div className="p-4"><button onClick={downloadTemplate} className="w-full flex items-center gap-3 rounded-xl border border-auth-blue/25 bg-auth-blue/5 p-3.5 hover:bg-auth-blue/10 text-left"><div className="w-9 h-9 rounded-lg bg-auth-blue/10 text-auth-blue flex items-center justify-center"><FileSpreadsheet size={17}/></div><div className="flex-1"><p className="text-xs font-semibold text-auth-text">Télécharger le modèle CSV</p><p className="text-[10px] text-auth-muted">Colonnes et exemple compatibles QuizzLiveFR</p></div><Download size={15} className="text-auth-blue"/></button><div className="mt-3 rounded-lg bg-auth-bg border border-auth-border p-3 text-[10px] leading-5 text-auth-muted"><span className="text-auth-text font-semibold">Obligatoire :</span> question, reponse_a, reponse_b, bonne_reponse.<br/><span className="text-auth-text font-semibold">Optionnel :</span> reponse_c, reponse_d, categorie, difficulte, duree, active.</div></div>
+          </div>
+
+          <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
+            <div className="px-5 py-4 border-b border-auth-border flex items-center justify-between"><div><h2 className="text-sm font-bold text-auth-text">Historique des imports</h2><p className="text-[11px] text-auth-muted mt-1">Les 5 dernières opérations enregistrées.</p></div><History size={17} className="text-auth-muted"/></div>
+            <div className="p-3">
+              {history.length === 0 ? (
+                <div className="py-7 text-center"><Clock3 size={18} className="mx-auto text-auth-mutedDim"/><p className="text-[11px] text-auth-muted mt-2">Aucun import enregistré.</p></div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {history.map((item) => (
+                    <div key={item.id} className="rounded-lg border border-auth-border bg-auth-bg/40 p-3">
+                      <div className="flex items-center justify-between gap-2"><p className="text-[11px] font-semibold text-auth-text truncate">{item.file_name}</p><span className="text-[9px] text-auth-muted shrink-0">{shortDate(item.created_at)}</span></div>
+                      <p className="text-[9px] text-auth-muted mt-1">{modeLabel(item.mode)}</p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[9px]"><span className="text-emerald-400">+{item.added_count} ajoutée(s)</span>{item.replaced_count > 0 && <span className="text-auth-blue">{item.replaced_count} remplacée(s)</span>}{item.ignored_count > 0 && <span className="text-amber-400">{item.ignored_count} ignorée(s)</span>}{item.error_count > 0 && <span className="text-red-400">{item.error_count} erreur(s)</span>}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </section>
