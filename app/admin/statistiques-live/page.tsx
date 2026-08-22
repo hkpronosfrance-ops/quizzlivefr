@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -9,6 +9,7 @@ import {
   Download,
   Eye,
   MessageSquare,
+  Play,
   Radio,
   RefreshCw,
   Target,
@@ -139,8 +140,9 @@ export default function LiveStatisticsPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  async function refresh() {
-    setLoading(true);
+  const refresh = useCallback(async (showLoader = false) => {
+    if (showLoader) setLoading(true);
+
     const { data: activeSession } = await db
       .from("sessions")
       .select("id,status,started_at,ended_at")
@@ -201,14 +203,29 @@ export default function LiveStatisticsPage() {
 
     setLastUpdated(new Date());
     setLoading(false);
-  }
+  }, [db]);
 
   useEffect(() => {
-    refresh();
-    const interval = window.setInterval(refresh, 5000);
-    return () => window.clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    refresh(true);
+
+    const channel = db
+      .channel("live-statistics-v2")
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "questions" }, () => refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "answers" }, () => refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "chat_messages" }, () => refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "leaderboard" }, () => refresh())
+      .subscribe();
+
+    const fallback = window.setInterval(() => refresh(), 15000);
+    return () => {
+      window.clearInterval(fallback);
+      db.removeChannel(channel);
+    };
+  }, [db, refresh]);
+
+  const chatMessages = useMemo(() => chat.filter((row) => !row.is_vote), [chat]);
+  const voteComments = useMemo(() => chat.filter((row) => row.is_vote), [chat]);
 
   const uniquePlayers = useMemo(() => {
     const players = new Set<string>();
@@ -223,21 +240,29 @@ export default function LiveStatisticsPage() {
     [answers],
   );
 
-  const currentQuestion = questions.find((q) => q.status === "active") ?? questions.at(-1) ?? null;
-  const currentQuestionAnswers = useMemo(
-    () => (currentQuestion ? answers.filter((a) => a.question_id === currentQuestion.id) : []),
-    [answers, currentQuestion],
+  const activeQuestion = useMemo(() => questions.find((q) => q.status === "active") ?? null, [questions]);
+  const lastQuestion = useMemo(() => questions.length ? questions[questions.length - 1] : null, [questions]);
+  const displayedQuestion = activeQuestion ?? lastQuestion;
+  const displayedQuestionAnswers = useMemo(
+    () => (displayedQuestion ? answers.filter((a) => a.question_id === displayedQuestion.id) : []),
+    [answers, displayedQuestion],
+  );
+  const questionContextLabel = activeQuestion ? "Question en cours" : lastQuestion ? "Dernière question" : "En attente de la première question";
+
+  const playedQuestions = useMemo(
+    () => questions.filter((q) => Boolean(q.started_at)),
+    [questions],
   );
 
   const hasLiveData = answers.length > 0 || chat.length > 0 || leaderboard.length > 0;
-  const hasActivity = answers.length > 0 || chat.length > 0;
+  const hasActivity = answers.length > 0 || chatMessages.length > 0;
 
   const responseDistribution = useMemo(() => {
     const counts: Record<string, number> = { a: 0, b: 0, c: 0, d: 0 };
-    currentQuestionAnswers.forEach((a) => {
+    displayedQuestionAnswers.forEach((a) => {
       counts[a.choice] = (counts[a.choice] ?? 0) + 1;
     });
-    const total = currentQuestionAnswers.length;
+    const total = displayedQuestionAnswers.length;
     return ["a", "b", "c", "d"].map((choice) => ({
       choice,
       label: CHOICE_LABELS[choice],
@@ -245,7 +270,7 @@ export default function LiveStatisticsPage() {
       percentage: total ? Math.round((counts[choice] / total) * 100) : 0,
       color: CHOICE_COLORS[choice],
     }));
-  }, [currentQuestionAnswers]);
+  }, [displayedQuestionAnswers]);
 
   const activityData = useMemo(() => {
     const now = Date.now();
@@ -260,7 +285,7 @@ export default function LiveStatisticsPage() {
       };
     });
 
-    chat.forEach((m) => {
+    chatMessages.forEach((m) => {
       const t = new Date(m.created_at).getTime();
       const bucket = buckets.find((x) => t >= x.start && t < x.end);
       if (bucket) bucket.messages += 1;
@@ -274,26 +299,25 @@ export default function LiveStatisticsPage() {
     });
 
     return buckets.map(({ label, messages, responses }) => ({ label, messages, responses }));
-  }, [answers, chat]);
+  }, [answers, chatMessages]);
 
-  const questionPerformance = useMemo(
+  const allQuestionPerformance = useMemo(
     () =>
-      questions
-        .map((q) => {
-          const rows = answers.filter((a) => a.question_id === q.id);
-          const good = rows.filter((a) => a.is_correct).length;
-          return {
-            id: q.id,
-            text: q.text,
-            answers: rows.length,
-            successRate: rows.length ? Math.round((good / rows.length) * 100) : null,
-          };
-        })
-        .slice(-6)
-        .reverse(),
-    [answers, questions],
+      playedQuestions.map((q) => {
+        const rows = answers.filter((a) => a.question_id === q.id);
+        const good = rows.filter((a) => a.is_correct).length;
+        return {
+          id: q.id,
+          text: q.text,
+          answers: rows.length,
+          successRate: rows.length ? Math.round((good / rows.length) * 100) : null,
+          status: q.status,
+        };
+      }),
+    [answers, playedQuestions],
   );
 
+  const questionPerformance = useMemo(() => allQuestionPerformance.slice(-6).reverse(), [allQuestionPerformance]);
   const topPlayers = leaderboard.slice(0, 5);
 
   const elapsed = useMemo(() => {
@@ -303,24 +327,30 @@ export default function LiveStatisticsPage() {
   }, [session, lastUpdated]);
 
   function exportSnapshot() {
+    if (!session) return;
     const payload = {
       exported_at: new Date().toISOString(),
       session,
       metrics: {
         players: uniquePlayers,
         answers: answers.length,
-        chat_messages: chat.length,
+        chat_messages: chatMessages.length,
+        vote_comments: voteComments.length,
         success_rate: successRate,
-        questions: questions.length,
+        questions_played: playedQuestions.length,
       },
-      leaderboard: topPlayers,
-      question_performance: questionPerformance,
+      leaderboard,
+      questions: playedQuestions,
+      answers,
+      chat_messages: chatMessages,
+      vote_comments: voteComments,
+      question_performance: allQuestionPerformance,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `quizzlive-stats-${session?.id ?? "session"}.json`;
+    anchor.download = `quizzlive-stats-${session.id}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -331,12 +361,14 @@ export default function LiveStatisticsPage() {
         <div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-auth-text">Statistiques live</h1>
-            {session ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-auth-positive/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-auth-positive">
-                <span className="w-1.5 h-1.5 rounded-full bg-auth-positive animate-pulse" /> En direct
-              </span>
-            ) : (
-              <span className="inline-flex items-center rounded-full bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-auth-muted">Hors ligne</span>
+            {!loading && (
+              session ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-auth-positive/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-auth-positive">
+                  <span className="w-1.5 h-1.5 rounded-full bg-auth-positive animate-pulse" /> En direct
+                </span>
+              ) : (
+                <span className="inline-flex items-center rounded-full bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-auth-muted">Hors ligne</span>
+              )
             )}
           </div>
           <p className="mt-1 text-sm text-auth-muted">Suivez en temps réel les performances de votre session et l’engagement des joueurs.</p>
@@ -346,10 +378,10 @@ export default function LiveStatisticsPage() {
           <Link href="/admin/sessions-live" className="inline-flex items-center gap-2 rounded-lg border border-auth-border bg-auth-panel px-3.5 py-2.5 text-xs font-semibold text-auth-text hover:bg-white/5 transition">
             <Eye size={15} /> Voir la session
           </Link>
-          <button onClick={refresh} className="inline-flex items-center gap-2 rounded-lg border border-auth-border bg-auth-panel px-3.5 py-2.5 text-xs font-semibold text-auth-text hover:bg-white/5 transition">
+          <button onClick={() => refresh(true)} className="inline-flex items-center gap-2 rounded-lg border border-auth-border bg-auth-panel px-3.5 py-2.5 text-xs font-semibold text-auth-text hover:bg-white/5 transition">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} /> Actualiser
           </button>
-          <button onClick={exportSnapshot} className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs font-semibold text-white" style={{ background: "linear-gradient(135deg, #4C6FFF 0%, #9B4DFF 52%, #FF3D8E 100%)" }}>
+          <button disabled={!session} onClick={exportSnapshot} className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs font-semibold text-white disabled:opacity-35 disabled:cursor-not-allowed" style={{ background: "linear-gradient(135deg, #4C6FFF 0%, #9B4DFF 52%, #FF3D8E 100%)" }}>
             <Download size={15} /> Exporter
           </button>
           <div className="hidden xl:block h-8 w-px bg-auth-border mx-1" />
@@ -357,207 +389,216 @@ export default function LiveStatisticsPage() {
         </div>
       </header>
 
-      {session && (
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-auth-mutedDim -mt-2">
-          <span>Session <span className="text-auth-muted">#{session.id.slice(0, 8).toUpperCase()}</span></span>
-          <span>Durée <span className="text-auth-muted">{elapsed}</span></span>
-          <span>Dernière mise à jour <span className="text-auth-muted">{lastUpdated?.toLocaleTimeString("fr-FR") ?? "—"}</span></span>
-        </div>
-      )}
-
-      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-        <MetricCard label="Joueurs identifiés" value={uniquePlayers.toLocaleString("fr-FR")} helper="Participants détectés dans la session" icon={Users} color="#9B4DFF" />
-        <MetricCard label="Réponses reçues" value={answers.length.toLocaleString("fr-FR")} helper="Votes A, B, C ou D enregistrés" icon={Target} color="#4C6FFF" />
-        <MetricCard label="Messages dans le chat" value={chat.length.toLocaleString("fr-FR")} helper="Commentaires TikTok enregistrés" icon={MessageSquare} color="#3DDCFF" />
-        <MetricCard label="Taux de réussite" value={successRate === null ? "—" : `${successRate}%`} helper={successRate === null ? "En attente des premières réponses" : "Sur l’ensemble des réponses"} icon={CheckCircle2} color="#22C55E" />
-        <MetricCard label="Questions jouées" value={questions.length.toLocaleString("fr-FR")} helper="Questions lancées pendant la session" icon={BarChart3} color="#F5A623" />
-      </section>
-
-      {session && !hasLiveData && (
-        <section className="rounded-xl border border-auth-blue/25 bg-auth-blue/[0.045] px-4 py-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-auth-blue/10 flex items-center justify-center shrink-0">
-            <Radio size={17} className="text-auth-blue" />
+      {!loading && !session ? (
+        <section className="rounded-xl border border-auth-border bg-auth-panel min-h-[250px] flex items-center justify-center px-6 py-12">
+          <div className="max-w-xl text-center">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-auth-blue/10 border border-auth-blue/20 flex items-center justify-center">
+              <Radio size={21} className="text-auth-blue" />
+            </div>
+            <h2 className="mt-4 text-base font-bold text-auth-text">Aucune session en cours</h2>
+            <p className="mt-2 text-xs leading-5 text-auth-muted">Les statistiques live apparaissent uniquement lorsqu’une session est active. Démarrez une nouvelle session pour suivre les réponses, le chat et le classement en temps réel.</p>
+            <Link href="/admin/sessions-live" className="mt-5 inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold text-white" style={{ background: "linear-gradient(135deg, #4C6FFF 0%, #9B4DFF 52%, #FF3D8E 100%)" }}>
+              <Play size={14} /> Démarrer une session
+            </Link>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold text-auth-text">En attente de données TikTok LIVE</p>
-            <p className="text-[10px] sm:text-[11px] leading-5 text-auth-muted">Les statistiques apparaîtront automatiquement dès les premières réponses A/B/C/D ou les premiers messages.</p>
-          </div>
-          <Link href="/admin/sessions-live" className="hidden sm:block text-[11px] font-semibold text-auth-blue hover:text-auth-text transition whitespace-nowrap">Ouvrir la session →</Link>
         </section>
-      )}
-
-      <section className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.55fr)_minmax(310px,0.75fr)] gap-4 items-start">
-        <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
-          <div className="px-5 py-4 border-b border-auth-border flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-bold text-auth-text">Évolution de l’activité</p>
-              <p className="text-[11px] text-auth-muted mt-0.5">Messages et réponses sur la dernière heure</p>
-            </div>
-            <Activity size={17} className="text-auth-purple" />
+      ) : session ? (
+        <>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-auth-mutedDim -mt-2">
+            <span>Session <span className="text-auth-muted">#{session.id.slice(0, 8).toUpperCase()}</span></span>
+            <span>Durée <span className="text-auth-muted">{elapsed}</span></span>
+            <span>Dernière mise à jour <span className="text-auth-muted">{lastUpdated?.toLocaleTimeString("fr-FR") ?? "—"}</span></span>
           </div>
-          {!session ? (
-            <CompactEmpty title="Aucune session active" description="Lancez une partie pour commencer à collecter les statistiques." />
-          ) : !hasActivity ? (
-            <CompactEmpty title="Aucune activité enregistrée" description="Le graphique apparaîtra dès qu’un spectateur enverra un message ou une réponse." />
-          ) : (
-            <div className="h-[270px] p-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={activityData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="messagesGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9B4DFF" stopOpacity={0.35} /><stop offset="100%" stopColor="#9B4DFF" stopOpacity={0} /></linearGradient>
-                    <linearGradient id="responsesGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4C6FFF" stopOpacity={0.28} /><stop offset="100%" stopColor="#4C6FFF" stopOpacity={0} /></linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#1D2030" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fill: "#6B7086", fontSize: 10 }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fill: "#6B7086", fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <Tooltip contentStyle={{ background: "#0A0C16", border: "1px solid #1D2030", borderRadius: 10, color: "#F3F4F8", fontSize: 12 }} />
-                  <Area type="monotone" dataKey="messages" name="Messages" stroke="#9B4DFF" strokeWidth={2} fill="url(#messagesGradient)" />
-                  <Area type="monotone" dataKey="responses" name="Réponses" stroke="#4C6FFF" strokeWidth={2} fill="url(#responsesGradient)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
 
-        <div className="grid gap-4">
-          <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
-            <div className="px-5 py-4 border-b border-auth-border">
-              <p className="text-sm font-bold text-auth-text">Répartition des réponses</p>
-              <p className="text-[11px] text-auth-muted mt-0.5">{currentQuestion ? currentQuestion.text : "Question actuelle"}</p>
-            </div>
-            {currentQuestion && currentQuestionAnswers.length > 0 ? (
-              <div className="p-4 lg:p-5 grid grid-cols-[125px_1fr] gap-4 items-center">
-                <div className="h-[125px]">
+          <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+            <MetricCard label="Joueurs identifiés" value={uniquePlayers.toLocaleString("fr-FR")} helper="Participants détectés dans la session" icon={Users} color="#9B4DFF" />
+            <MetricCard label="Réponses reçues" value={answers.length.toLocaleString("fr-FR")} helper="Votes A, B, C ou D enregistrés" icon={Target} color="#4C6FFF" />
+            <MetricCard label="Messages dans le chat" value={chatMessages.length.toLocaleString("fr-FR")} helper="Commentaires TikTok hors votes" icon={MessageSquare} color="#3DDCFF" />
+            <MetricCard label="Taux de réussite" value={successRate === null ? "—" : `${successRate}%`} helper={successRate === null ? "En attente des premières réponses" : "Sur l’ensemble des réponses"} icon={CheckCircle2} color="#22C55E" />
+            <MetricCard label="Questions jouées" value={playedQuestions.length.toLocaleString("fr-FR")} helper="Questions réellement lancées" icon={BarChart3} color="#F5A623" />
+          </section>
+
+          {!hasLiveData && (
+            <section className="rounded-xl border border-auth-blue/25 bg-auth-blue/[0.045] px-4 py-2.5 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-auth-blue/10 flex items-center justify-center shrink-0">
+                <Radio size={16} className="text-auth-blue" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-semibold text-auth-text">Session en cours — en attente de la première question</p>
+                <p className="text-[10px] sm:text-[11px] leading-4 text-auth-muted mt-0.5">Les statistiques apparaîtront automatiquement dès le lancement d’une question ou les premières interactions TikTok LIVE.</p>
+              </div>
+              <Link href="/admin/sessions-live" className="hidden sm:block text-[11px] font-semibold text-auth-blue hover:text-auth-text transition whitespace-nowrap">Ouvrir la session →</Link>
+            </section>
+          )}
+
+          <section className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.55fr)_minmax(310px,0.75fr)] gap-4 items-start">
+            <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
+              <div className="px-5 py-4 border-b border-auth-border flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-auth-text">Évolution de l’activité</p>
+                  <p className="text-[11px] text-auth-muted mt-0.5">Messages réels et réponses sur la dernière heure</p>
+                </div>
+                <Activity size={17} className="text-auth-purple" />
+              </div>
+              {!hasActivity ? (
+                <CompactEmpty title="Aucune activité enregistrée" description="Le graphique apparaîtra dès qu’un spectateur enverra un message ou une réponse." />
+              ) : (
+                <div className="h-[270px] p-4">
                   <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={responseDistribution} dataKey="count" nameKey="label" innerRadius={37} outerRadius={53} paddingAngle={2} stroke="none">
-                        {responseDistribution.map((entry) => <Cell key={entry.choice} fill={entry.color} />)}
-                      </Pie>
-                    </PieChart>
+                    <AreaChart data={activityData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="messagesGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9B4DFF" stopOpacity={0.35} /><stop offset="100%" stopColor="#9B4DFF" stopOpacity={0} /></linearGradient>
+                        <linearGradient id="responsesGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4C6FFF" stopOpacity={0.28} /><stop offset="100%" stopColor="#4C6FFF" stopOpacity={0} /></linearGradient>
+                      </defs>
+                      <CartesianGrid stroke="#1D2030" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fill: "#6B7086", fontSize: 10 }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fill: "#6B7086", fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                      <Tooltip contentStyle={{ background: "#0A0C16", border: "1px solid #1D2030", borderRadius: 10, color: "#F3F4F8", fontSize: 12 }} />
+                      <Area type="monotone" dataKey="messages" name="Messages" stroke="#9B4DFF" strokeWidth={2} fill="url(#messagesGradient)" />
+                      <Area type="monotone" dataKey="responses" name="Réponses" stroke="#4C6FFF" strokeWidth={2} fill="url(#responsesGradient)" />
+                    </AreaChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="space-y-2.5">
-                  {responseDistribution.map((item) => (
-                    <div key={item.choice} className="flex items-center gap-2.5">
-                      <span className="w-5 text-xs font-bold" style={{ color: item.color }}>{item.label}</span>
-                      <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${item.percentage}%`, backgroundColor: item.color }} /></div>
-                      <span className="w-9 text-right text-xs font-semibold text-auth-text">{item.percentage}%</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <CompactEmpty title="Aucune réponse pour le moment" description="La répartition A/B/C/D s’affichera dès le premier vote." />
-            )}
-          </div>
-
-          <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
-            <div className="px-5 py-4 border-b border-auth-border flex items-center justify-between">
-              <div>
-                <p className="text-sm font-bold text-auth-text">Top joueurs</p>
-                <p className="text-[11px] text-auth-muted mt-0.5">Classement de la session en cours</p>
-              </div>
-              <Trophy size={17} className="text-auth-blue" />
+              )}
             </div>
-            {topPlayers.length ? (
-              <div className="divide-y divide-auth-border/70">
-                {topPlayers.map((player, index) => (
-                  <div key={player.tiktok_user} className="px-5 py-3 flex items-center gap-3">
-                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${index === 0 ? "bg-amber-400/15 text-amber-400" : "bg-white/5 text-auth-muted"}`}>{index + 1}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-auth-text truncate">@{player.tiktok_user}</p>
-                      <p className="text-[10px] text-auth-mutedDim">{player.correct_answers} bonnes réponses</p>
-                    </div>
-                    <p className="text-xs font-bold text-auth-text">{player.total_points.toLocaleString("fr-FR")} pts</p>
+
+            <div className="grid gap-4">
+              <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
+                <div className="px-5 py-4 border-b border-auth-border">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-bold text-auth-text">Répartition des réponses</p>
+                    {displayedQuestion && <span className={`text-[9px] font-bold uppercase tracking-wider rounded-full px-2 py-1 ${activeQuestion ? "bg-auth-positive/10 text-auth-positive" : "bg-white/5 text-auth-muted"}`}>{questionContextLabel}</span>}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <CompactEmpty
-                title="Le classement se prépare"
-                description="Dès qu’un joueur marque ses premiers points, son pseudo et son score apparaîtront ici."
-                icon={Trophy}
-                emphasis
-              />
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.55fr)_minmax(310px,0.75fr)] gap-4 items-start">
-        <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
-          <div className="px-5 py-4 border-b border-auth-border">
-            <p className="text-sm font-bold text-auth-text">Performances par question</p>
-            <p className="text-[11px] text-auth-muted mt-0.5">Taux de réussite et volume de réponses des dernières questions</p>
-          </div>
-          {questionPerformance.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[660px] text-left">
-                <thead>
-                  <tr className="border-b border-auth-border text-[9px] uppercase tracking-[0.15em] text-auth-mutedDim">
-                    <th className="px-5 py-3 font-bold">Question</th>
-                    <th className="px-4 py-3 font-bold w-28">Réponses</th>
-                    <th className="px-4 py-3 font-bold w-52">Réussite</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {questionPerformance.map((q, index) => (
-                    <tr key={q.id} className="border-b border-auth-border/70 last:border-0 hover:bg-white/[0.02] transition">
-                      <td className="px-5 py-4">
-                        <div className="flex items-start gap-3">
-                          <span className="w-6 h-6 rounded-md bg-white/5 text-auth-muted text-[10px] flex items-center justify-center shrink-0">{questions.length - index}</span>
-                          <div>
-                            <p className="text-xs text-auth-text leading-5 line-clamp-2">{q.text}</p>
-                            {q.answers === 0 && <p className="text-[10px] text-auth-mutedDim mt-1">En attente des premières réponses</p>}
-                          </div>
+                  <p className="text-[11px] text-auth-muted mt-1 truncate">{displayedQuestion ? displayedQuestion.text : "En attente de la première question"}</p>
+                </div>
+                {displayedQuestion && displayedQuestionAnswers.length > 0 ? (
+                  <div className="p-4 lg:p-5 grid grid-cols-[125px_1fr] gap-4 items-center">
+                    <div className="h-[125px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={responseDistribution} dataKey="count" nameKey="label" innerRadius={37} outerRadius={53} paddingAngle={2} stroke="none">
+                            {responseDistribution.map((entry) => <Cell key={entry.choice} fill={entry.color} />)}
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="space-y-2.5">
+                      {responseDistribution.map((item) => (
+                        <div key={item.choice} className="flex items-center gap-2.5">
+                          <span className="w-5 text-xs font-bold" style={{ color: item.color }}>{item.label}</span>
+                          <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${item.percentage}%`, backgroundColor: item.color }} /></div>
+                          <span className="w-9 text-right text-xs font-semibold text-auth-text">{item.percentage}%</span>
                         </div>
-                      </td>
-                      <td className="px-4 py-4 text-xs text-auth-muted">{q.answers.toLocaleString("fr-FR")}</td>
-                      <td className="px-4 py-4">
-                        {q.successRate === null ? (
-                          <div className="flex items-center gap-3">
-                            <div className="flex-1 h-1.5 rounded-full bg-white/5" />
-                            <span className="w-10 text-right text-xs font-semibold text-auth-muted">—</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-3">
-                            <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden"><div className="h-full rounded-full bg-auth-positive" style={{ width: `${q.successRate}%` }} /></div>
-                            <span className="w-10 text-right text-xs font-semibold text-auth-text">{q.successRate}%</span>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <CompactEmpty title="Aucune question jouée" description="Les performances apparaîtront après le lancement d’une question." />
-          )}
-        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <CompactEmpty title={displayedQuestion ? "Aucune réponse pour cette question" : "En attente de la première question"} description={displayedQuestion ? "La répartition A/B/C/D s’affichera dès le premier vote." : "Lancez une première question depuis la Session Live."} />
+                )}
+              </div>
 
-        <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
-          <div className="px-5 py-4 border-b border-auth-border">
-            <p className="text-sm font-bold text-auth-text">Activité dans le chat</p>
-            <p className="text-[11px] text-auth-muted mt-0.5">Messages par tranche de 5 minutes</p>
-          </div>
-          {chat.length === 0 ? (
-            <CompactEmpty title="Chat encore silencieux" description="Le graphique apparaîtra dès que des commentaires seront reçus." />
-          ) : (
-            <div className="h-[205px] p-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={activityData} margin={{ top: 8, right: 0, left: -24, bottom: 0 }}>
-                  <CartesianGrid stroke="#1D2030" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fill: "#6B7086", fontSize: 9 }} tickLine={false} axisLine={false} interval={2} />
-                  <YAxis tick={{ fill: "#6B7086", fontSize: 9 }} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <Tooltip contentStyle={{ background: "#0A0C16", border: "1px solid #1D2030", borderRadius: 10, color: "#F3F4F8", fontSize: 12 }} />
-                  <Bar dataKey="messages" name="Messages" fill="#9B4DFF" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
+                <div className="px-5 py-4 border-b border-auth-border flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-auth-text">Top joueurs</p>
+                    <p className="text-[11px] text-auth-muted mt-0.5">Classement de la session en cours</p>
+                  </div>
+                  <Trophy size={17} className="text-auth-blue" />
+                </div>
+                {topPlayers.length ? (
+                  <div className="divide-y divide-auth-border/70">
+                    {topPlayers.map((player, index) => (
+                      <div key={player.tiktok_user} className="px-5 py-3 flex items-center gap-3">
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${index === 0 ? "bg-amber-400/15 text-amber-400" : "bg-white/5 text-auth-muted"}`}>{index + 1}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-auth-text truncate">@{player.tiktok_user}</p>
+                          <p className="text-[10px] text-auth-mutedDim">{player.correct_answers} bonnes réponses</p>
+                        </div>
+                        <p className="text-xs font-bold text-auth-text">{player.total_points.toLocaleString("fr-FR")} pts</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <CompactEmpty title="Le classement se prépare" description="Dès qu’un joueur marque ses premiers points, son pseudo et son score apparaîtront ici." icon={Trophy} emphasis />
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      </section>
+          </section>
+
+          <section className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.55fr)_minmax(310px,0.75fr)] gap-4 items-start">
+            <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
+              <div className="px-5 py-4 border-b border-auth-border">
+                <p className="text-sm font-bold text-auth-text">Performances par question</p>
+                <p className="text-[11px] text-auth-muted mt-0.5">Taux de réussite et volume de réponses des dernières questions jouées</p>
+              </div>
+              {questionPerformance.length ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[660px] text-left">
+                    <thead>
+                      <tr className="border-b border-auth-border text-[9px] uppercase tracking-[0.15em] text-auth-mutedDim">
+                        <th className="px-5 py-3 font-bold">Question</th>
+                        <th className="px-4 py-3 font-bold w-28">Réponses</th>
+                        <th className="px-4 py-3 font-bold w-52">Réussite</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {questionPerformance.map((q, index) => (
+                        <tr key={q.id} className="border-b border-auth-border/70 last:border-0 hover:bg-white/[0.02] transition">
+                          <td className="px-5 py-4">
+                            <div className="flex items-start gap-3">
+                              <span className="w-6 h-6 rounded-md bg-white/5 text-auth-muted text-[10px] flex items-center justify-center shrink-0">{playedQuestions.length - index}</span>
+                              <div>
+                                <p className="text-xs text-auth-text leading-5 line-clamp-2">{q.text}</p>
+                                {q.answers === 0 && <p className="text-[10px] text-auth-mutedDim mt-1">Aucune réponse enregistrée</p>}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 text-xs text-auth-muted">{q.answers.toLocaleString("fr-FR")}</td>
+                          <td className="px-4 py-4">
+                            {q.successRate === null ? (
+                              <div className="flex items-center gap-3"><div className="flex-1 h-1.5 rounded-full bg-white/5" /><span className="w-10 text-right text-xs font-semibold text-auth-muted">—</span></div>
+                            ) : (
+                              <div className="flex items-center gap-3"><div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden"><div className="h-full rounded-full bg-auth-positive" style={{ width: `${q.successRate}%` }} /></div><span className="w-10 text-right text-xs font-semibold text-auth-text">{q.successRate}%</span></div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <CompactEmpty title="Aucune question jouée" description="Les performances apparaîtront après le lancement d’une question." />
+              )}
+            </div>
+
+            <div className="rounded-xl border border-auth-border bg-auth-panel overflow-hidden">
+              <div className="px-5 py-4 border-b border-auth-border">
+                <p className="text-sm font-bold text-auth-text">Activité dans le chat</p>
+                <p className="text-[11px] text-auth-muted mt-0.5">Messages TikTok hors votes, par tranche de 5 minutes</p>
+              </div>
+              {chatMessages.length === 0 ? (
+                <CompactEmpty title="Chat encore silencieux" description={voteComments.length ? `${voteComments.length} vote(s) reçu(s), mais aucun message de chat classique.` : "Le graphique apparaîtra dès que des commentaires hors votes seront reçus."} />
+              ) : (
+                <div className="h-[205px] p-4">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={activityData} margin={{ top: 8, right: 0, left: -24, bottom: 0 }}>
+                      <CartesianGrid stroke="#1D2030" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fill: "#6B7086", fontSize: 9 }} tickLine={false} axisLine={false} interval={2} />
+                      <YAxis tick={{ fill: "#6B7086", fontSize: 9 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                      <Tooltip contentStyle={{ background: "#0A0C16", border: "1px solid #1D2030", borderRadius: 10, color: "#F3F4F8", fontSize: 12 }} />
+                      <Bar dataKey="messages" name="Messages" fill="#9B4DFF" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          </section>
+        </>
+      ) : (
+        <section className="rounded-xl border border-auth-border bg-auth-panel min-h-[220px] flex items-center justify-center">
+          <RefreshCw size={20} className="animate-spin text-auth-blue" />
+        </section>
+      )}
     </div>
   );
 }
