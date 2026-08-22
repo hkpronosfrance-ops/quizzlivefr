@@ -1,31 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Bell, ChevronDown } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase";
-import { useAdminToast } from "./AdminToastContext";
 
 export function AdminTopControls() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const notify = useAdminToast();
+  const [unread, setUnread] = useState(0);
+  const db = useMemo(() => supabaseBrowser(), []);
+
+  useEffect(() => {
+    let mounted = true;
+    async function refreshUnread() {
+      const { count } = await db.from("notification_events").select("id", { count: "exact", head: true }).is("read_at", null);
+      if (mounted) setUnread(count || 0);
+    }
+    refreshUnread();
+    const channel = db
+      .channel("admin-top-notifications")
+      .on("postgres_changes", { event: "*", schema: "public", table: "notification_events" }, refreshUnread)
+      .subscribe();
+    const fallback = window.setInterval(refreshUnread, 15000);
+    return () => {
+      mounted = false;
+      window.clearInterval(fallback);
+      db.removeChannel(channel);
+    };
+  }, [db]);
 
   async function handleSignOut() {
-    const db = supabaseBrowser();
     await db.auth.signOut();
     window.location.href = "/admin";
   }
 
   return (
     <div className="flex items-center gap-4">
-      <button
-        onClick={() => notify("Notifications — bientôt disponible.")}
-        className="relative text-auth-muted hover:text-auth-text transition"
-      >
+      <Link href="/admin/notifications" aria-label="Ouvrir les notifications" className="relative text-auth-muted hover:text-auth-text transition">
         <Bell size={19} />
-        <span className="absolute -top-1.5 -right-1.5 bg-auth-pink text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-          3
-        </span>
-      </button>
+        {unread > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 bg-auth-pink text-white text-[9px] font-bold rounded-full min-w-4 h-4 px-1 flex items-center justify-center">
+            {unread > 99 ? "99+" : unread}
+          </span>
+        )}
+      </Link>
 
       <div className="relative">
         <button onClick={() => setMenuOpen((v) => !v)} className="flex items-center gap-2.5">
