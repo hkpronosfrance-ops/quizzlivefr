@@ -14,10 +14,13 @@ import {
   BarChart3,
   Settings,
   ArrowRight,
+  MonitorPlay,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { supabaseBrowser } from "@/lib/supabase";
 import type { Question } from "@/lib/supabase";
+import { AdminTopControls } from "@/components/AdminTopControls";
+import { useAdminToast } from "@/components/AdminToastContext";
 
 // Mock data — no analytics/aggregation backend yet, wired for real once it exists.
 const STAT_CARDS = [
@@ -55,6 +58,7 @@ type SessionRow = {
 
 export default function DashboardPage() {
   const db = useMemo(() => supabaseBrowser(), []);
+  const notify = useAdminToast();
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
   const [answerCounts, setAnswerCounts] = useState<Record<string, number>>({});
   const [playerCount, setPlayerCount] = useState(0);
@@ -145,6 +149,27 @@ export default function DashboardPage() {
 
   return (
     <div className="p-8 flex flex-col gap-6">
+      {/* Page header */}
+      <div className="flex items-center justify-between -mt-2 mb-2">
+        <div>
+          <p className="text-auth-muted text-xs">Bienvenue,</p>
+          <p className="text-auth-text font-bold text-lg">Admin QuizzLiveFR</p>
+        </div>
+        <div className="flex items-center gap-4">
+          <a
+            href="/"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 border border-auth-border rounded-lg px-3.5 py-2 text-auth-text text-sm hover:bg-white/5 transition"
+          >
+            <MonitorPlay size={15} />
+            Voir le live
+            {isLive && <span className="w-1.5 h-1.5 rounded-full bg-auth-live" />}
+          </a>
+          <AdminTopControls />
+        </div>
+      </div>
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {STAT_CARDS.map(({ icon: Icon, label, value, delta, color }) => (
@@ -362,7 +387,7 @@ export default function DashboardPage() {
           ].map(({ icon: Icon, label }) => (
             <button
               key={label}
-              onClick={() => alert(`${label} — bientôt disponible.`)}
+              onClick={() => notify(`${label} — bientôt disponible.`)}
               className="flex flex-col items-center gap-2 border border-auth-border rounded-lg py-4 text-auth-text text-xs hover:bg-white/5 transition"
             >
               <Icon size={18} />
