@@ -11,3 +11,26 @@ html, body {
 * {
   box-sizing: border-box;
 }
+
+/* Question bank: keep the category picker fast and easy to scroll. */
+[data-modal-dropdown]:first-child > .absolute {
+  max-height: 300px !important;
+  overscroll-behavior: auto !important;
+  scroll-behavior: auto !important;
+  scrollbar-width: auto !important;
+  scrollbar-color: #4a526d transparent !important;
+}
+
+[data-modal-dropdown]:first-child > .absolute::-webkit-scrollbar {
+  width: 8px !important;
+}
+
+[data-modal-dropdown]:first-child > .absolute::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+[data-modal-dropdown]:first-child > .absolute::-webkit-scrollbar-thumb {
+  background: #4a526d !important;
+  border-radius: 999px !important;
+  border: 2px solid #0c0e17 !important;
+}
