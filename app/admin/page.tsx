@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase";
 import type { LeaderboardRow, Question } from "@/lib/supabase";
 
+const CHANNELS = [
+  { key: "a" as const, label: "CH.A", color: "#FF2D6A" },
+  { key: "b" as const, label: "CH.B", color: "#FFD400" },
+  { key: "c" as const, label: "CH.C", color: "#3DDCFF" },
+  { key: "d" as const, label: "CH.D", color: "#7CFF6B" },
+];
+
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
@@ -22,26 +29,39 @@ export default function AdminPage() {
       setAuthed(true);
       setAuthError("");
     } else {
-      setAuthError("Mot de passe incorrect.");
+      setAuthError("ACCÈS REFUSÉ — CODE INCORRECT");
     }
   }
 
   if (!authed) {
     return (
-      <div className="min-h-screen bg-void flex items-center justify-center font-body">
-        <form onSubmit={handleLogin} className="bg-panel border border-line rounded-2xl p-8 w-[360px] flex flex-col gap-4">
-          <h1 className="font-display font-bold text-white text-xl">Panneau QuizzLiveFR</h1>
+      <div className="min-h-screen bg-console-bg flex items-center justify-center font-body">
+        <form
+          onSubmit={handleLogin}
+          className="bg-console-panel border border-console-line rounded-md p-8 w-[380px] flex flex-col gap-5"
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-console-warn" />
+            <span className="font-condensed font-semibold text-console-muted text-xs tracking-[0.2em] uppercase">
+              Régie · Accès restreint
+            </span>
+          </div>
+          <h1 className="font-condensed font-bold text-console-text text-2xl uppercase tracking-wide">
+            QuizzLiveFR
+          </h1>
           <input
             type="password"
             autoFocus
             value={passwordInput}
             onChange={(e) => setPasswordInput(e.target.value)}
-            placeholder="Mot de passe"
-            className="bg-void border border-line rounded-lg px-4 py-2.5 text-white outline-none focus:border-signal"
+            placeholder="CODE D'ACCÈS"
+            className="bg-console-bg border border-console-line rounded px-4 py-3 text-console-text font-consolemono text-sm tracking-widest outline-none focus:border-console-ready placeholder:text-console-muted"
           />
-          {authError && <p className="text-pulse text-sm">{authError}</p>}
-          <button className="bg-signal text-void font-bold rounded-lg py-2.5 hover:opacity-90 transition">
-            Entrer
+          {authError && (
+            <p className="text-console-tally font-condensed text-xs tracking-widest uppercase">{authError}</p>
+          )}
+          <button className="bg-console-ready text-console-bg font-condensed font-bold uppercase tracking-widest rounded py-3 hover:brightness-110 transition">
+            Ouvrir la régie
           </button>
         </form>
       </div>
@@ -54,10 +74,12 @@ export default function AdminPage() {
 function ControlPanel() {
   const db = useMemo(() => supabaseBrowser(), []);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(null);
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
   const [status, setStatus] = useState<string>("");
   const [launching, setLaunching] = useState(false);
+  const [now, setNow] = useState(Date.now());
 
   const [text, setText] = useState("");
   const [choiceA, setChoiceA] = useState("");
@@ -66,15 +88,29 @@ function ControlPanel() {
   const [choiceD, setChoiceD] = useState("");
   const [correct, setCorrect] = useState<"a" | "b" | "c" | "d">("a");
 
+  const choiceSetters: Record<string, (v: string) => void> = {
+    a: setChoiceA,
+    b: setChoiceB,
+    c: setChoiceC,
+    d: setChoiceD,
+  };
+  const choiceValues: Record<string, string> = { a: choiceA, b: choiceB, c: choiceC, d: choiceD };
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
+
   async function startSession() {
-    setStatus("Démarrage de la session…");
+    setStatus("INITIALISATION SESSION…");
     const res = await fetch("/api/session/start", { method: "POST" });
     const data = await res.json();
     if (data.session) {
       setSessionId(data.session.id);
-      setStatus(data.reused ? "Session déjà active reprise." : "Nouvelle session démarrée.");
+      setSessionStartedAt(data.session.started_at);
+      setStatus(data.reused ? "SESSION ACTIVE REPRISE" : "NOUVELLE SESSION OUVERTE");
     } else {
-      setStatus("Erreur: " + data.error);
+      setStatus("ERREUR: " + data.error);
     }
   }
 
@@ -83,7 +119,6 @@ function ControlPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Track the active question (to disable the launch button while one is running).
   useEffect(() => {
     if (!sessionId) return;
 
@@ -111,7 +146,6 @@ function ControlPanel() {
     };
   }, [db, sessionId]);
 
-  // Leaderboard live view for the admin too.
   useEffect(() => {
     if (!sessionId) return;
 
@@ -143,7 +177,7 @@ function ControlPanel() {
     e.preventDefault();
     if (!sessionId) return;
     setLaunching(true);
-    setStatus("Lancement de la question…");
+    setStatus("ENVOI VERS L'OVERLAY…");
 
     const res = await fetch("/api/question/launch", {
       method: "POST",
@@ -162,7 +196,7 @@ function ControlPanel() {
     setLaunching(false);
 
     if (data.question) {
-      setStatus("Question lancée — 30s en cours sur l'overlay.");
+      setStatus("QUESTION EN ANTENNE — 30S");
       setText("");
       setChoiceA("");
       setChoiceB("");
@@ -170,7 +204,7 @@ function ControlPanel() {
       setChoiceD("");
       setCorrect("a");
     } else {
-      setStatus("Erreur: " + data.error);
+      setStatus("ERREUR: " + data.error);
     }
   }
 
@@ -183,99 +217,174 @@ function ControlPanel() {
   }
 
   const remaining = activeQuestion
-    ? Math.max(0, Math.ceil(activeQuestion.duration_seconds - (Date.now() - new Date(activeQuestion.started_at).getTime()) / 1000))
+    ? Math.max(0, Math.ceil(activeQuestion.duration_seconds - (now - new Date(activeQuestion.started_at).getTime()) / 1000))
     : 0;
+  const isLive = !!activeQuestion && remaining > 0;
+
+  const sessionElapsed = sessionStartedAt ? Math.floor((now - new Date(sessionStartedAt).getTime()) / 1000) : 0;
+  const sessionClock = `${String(Math.floor(sessionElapsed / 60)).padStart(2, "0")}:${String(sessionElapsed % 60).padStart(2, "0")}`;
 
   return (
-    <div className="min-h-screen bg-void font-body p-8">
-      <div className="max-w-3xl mx-auto flex flex-col gap-6">
-        <div className="flex items-center justify-between">
-          <h1 className="font-display font-bold text-white text-2xl">Panneau QuizzLiveFR</h1>
-          <button onClick={endSession} className="text-pulse text-sm border border-pulse/40 rounded-lg px-3 py-1.5 hover:bg-pulse/10 transition">
-            Terminer la session
-          </button>
+    <div className="min-h-screen bg-console-bg font-body pb-16">
+      {/* Status bar */}
+      <div className="border-b border-console-line bg-console-panel px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <span
+            className="w-3 h-3 rounded-full transition-all"
+            style={{
+              background: isLive ? "#E8342A" : "#3A3F3F",
+              boxShadow: isLive ? "0 0 10px 2px #E8342A" : "none",
+              animation: isLive ? "pulse 1s ease-in-out infinite" : "none",
+            }}
+          />
+          <span className="font-condensed font-bold text-sm tracking-[0.2em] uppercase" style={{ color: isLive ? "#E8342A" : "#7D8888" }}>
+            {isLive ? "ON AIR" : "HORS ANTENNE"}
+          </span>
         </div>
 
-        {status && <p className="text-ink text-sm">{status}</p>}
+        <div className="flex items-center gap-2">
+          <span className="font-condensed text-console-muted text-xs tracking-widest uppercase">QuizzLiveFR</span>
+          <span className="text-console-line">·</span>
+          <span className="font-consolemono text-console-text text-xs">@quizzlivefr</span>
+        </div>
 
-        {activeQuestion && (
-          <div className="bg-panel border border-signal/40 rounded-xl p-4 flex items-center justify-between">
-            <div>
-              <p className="text-signal text-xs uppercase tracking-wide font-bold mb-1">Question en cours</p>
-              <p className="text-white">{activeQuestion.text}</p>
+        <div className="flex items-center gap-5">
+          <div className="flex items-center gap-2">
+            <span className="font-condensed text-console-muted text-xs tracking-widest uppercase">Session</span>
+            <span className="font-consolemono text-console-ready text-sm">{sessionClock}</span>
+          </div>
+          <button
+            onClick={endSession}
+            className="text-console-tally text-xs font-condensed font-semibold uppercase tracking-widest border border-console-tally/40 rounded px-3 py-1.5 hover:bg-console-tally/10 transition"
+          >
+            Terminer
+          </button>
+        </div>
+      </div>
+
+      <div className="max-w-4xl mx-auto px-6 pt-8 flex flex-col gap-6">
+        {status && (
+          <p className="font-consolemono text-console-muted text-xs tracking-wide uppercase">▸ {status}</p>
+        )}
+
+        {/* Active question monitor */}
+        {isLive && activeQuestion && (
+          <div className="bg-console-panel border border-console-tally/50 rounded-md overflow-hidden">
+            <div className="px-5 py-2 border-b border-console-line bg-console-tally/10 flex items-center justify-between">
+              <span className="font-condensed font-bold text-console-tally text-xs tracking-[0.2em] uppercase">
+                Question en antenne
+              </span>
+              <span className="font-consolemono text-console-tally text-2xl font-bold tabular-nums">
+                {String(remaining).padStart(2, "0")}s
+              </span>
             </div>
-            <div className="font-mono text-signal text-3xl font-bold">{remaining}s</div>
+            <div className="px-5 py-4">
+              <p className="text-console-text text-lg">{activeQuestion.text}</p>
+            </div>
           </div>
         )}
 
-        <form onSubmit={launchQuestion} className="bg-panel border border-line rounded-2xl p-6 flex flex-col gap-4">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-ink text-xs uppercase tracking-wide">Question</span>
+        {/* Channel strip — question composer */}
+        <form onSubmit={launchQuestion} className="bg-console-panel border border-console-line rounded-md overflow-hidden">
+          <div className="px-5 py-3 border-b border-console-line flex items-center gap-2.5">
+            <span className="w-2 h-2 rounded-full bg-console-ready" />
+            <span className="font-condensed font-bold text-console-text text-xs tracking-[0.2em] uppercase">
+              CH.1 — Question
+            </span>
+          </div>
+          <div className="p-5 flex flex-col gap-5">
             <input
               required
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder="Quelle équipe a gagné la Ligue des Champions 2024 ?"
-              className="bg-void border border-line rounded-lg px-4 py-2.5 text-white outline-none focus:border-signal"
+              className="bg-console-bg border border-console-line rounded px-4 py-3 text-console-text outline-none focus:border-console-ready placeholder:text-console-muted/60"
             />
-          </label>
 
-          <div className="grid grid-cols-2 gap-4">
-            {[
-              { key: "a", val: choiceA, set: setChoiceA, required: true },
-              { key: "b", val: choiceB, set: setChoiceB, required: true },
-              { key: "c", val: choiceC, set: setChoiceC, required: false },
-              { key: "d", val: choiceD, set: setChoiceD, required: false },
-            ].map(({ key, val, set, required }) => (
-              <label key={key} className="flex flex-col gap-1.5">
-                <span className="text-ink text-xs uppercase tracking-wide">Réponse {key.toUpperCase()}</span>
-                <input
-                  required={required}
-                  value={val}
-                  onChange={(e) => set(e.target.value)}
-                  className="bg-void border border-line rounded-lg px-4 py-2.5 text-white outline-none focus:border-signal"
-                />
-              </label>
-            ))}
-          </div>
+            <div className="grid grid-cols-2 gap-3">
+              {CHANNELS.map(({ key, label, color }) => (
+                <div key={key} className="bg-console-bg border border-console-line rounded overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-console-line">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+                      <span className="font-condensed font-semibold text-xs tracking-widest" style={{ color }}>
+                        {label}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCorrect(key)}
+                      className={`font-condensed text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded transition ${
+                        correct === key
+                          ? "bg-console-ready text-console-bg"
+                          : "bg-transparent text-console-muted border border-console-line hover:border-console-ready/50"
+                      }`}
+                    >
+                      {correct === key ? "✓ Bonne réponse" : "Marquer correcte"}
+                    </button>
+                  </div>
+                  <input
+                    required={key === "a" || key === "b"}
+                    value={choiceValues[key]}
+                    onChange={(e) => choiceSetters[key](e.target.value)}
+                    placeholder={key === "a" || key === "b" ? "Requis" : "Optionnel"}
+                    className="w-full bg-transparent px-3 py-2.5 text-console-text text-sm outline-none placeholder:text-console-muted/50"
+                  />
+                </div>
+              ))}
+            </div>
 
-          <label className="flex flex-col gap-1.5">
-            <span className="text-ink text-xs uppercase tracking-wide">Bonne réponse</span>
-            <select
-              value={correct}
-              onChange={(e) => setCorrect(e.target.value as "a" | "b" | "c" | "d")}
-              className="bg-void border border-line rounded-lg px-4 py-2.5 text-white outline-none focus:border-signal"
+            <button
+              disabled={launching || isLive}
+              className="font-condensed font-bold uppercase tracking-[0.15em] rounded py-4 transition disabled:cursor-not-allowed"
+              style={{
+                background: isLive ? "#2A2F30" : launching ? "#2A2F30" : "#3ECF6E",
+                color: isLive || launching ? "#7D8888" : "#0D0F0F",
+              }}
             >
-              <option value="a">A</option>
-              <option value="b">B</option>
-              <option value="c">C</option>
-              <option value="d">D</option>
-            </select>
-          </label>
-
-          <button
-            disabled={launching || !!activeQuestion}
-            className="bg-signal text-void font-bold rounded-lg py-3 hover:opacity-90 transition disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {activeQuestion ? `Question en cours (${remaining}s)` : launching ? "Lancement…" : "Lancer la question"}
-          </button>
+              {isLive ? `● En antenne (${remaining}s)` : launching ? "Envoi…" : "▶ Lancer la question"}
+            </button>
+          </div>
         </form>
 
-        <div className="bg-panel border border-line rounded-2xl p-6">
-          <h2 className="font-display font-bold text-white text-sm uppercase tracking-wide mb-3">
-            Classement de la session
-          </h2>
-          <div className="flex flex-col gap-1.5">
-            {leaderboard.length === 0 && <p className="text-ink text-sm">Aucun score pour l'instant.</p>}
+        {/* Leaderboard monitor */}
+        <div className="bg-console-panel border border-console-line rounded-md overflow-hidden">
+          <div className="px-5 py-3 border-b border-console-line flex items-center gap-2.5">
+            <span className="w-2 h-2 rounded-full bg-console-warn" />
+            <span className="font-condensed font-bold text-console-text text-xs tracking-[0.2em] uppercase">
+              Monitor — Classement session
+            </span>
+          </div>
+          <div className="flex flex-col">
+            {leaderboard.length === 0 && (
+              <div className="px-5 py-6 text-console-muted font-consolemono text-xs text-center">
+                AUCUN SCORE — EN ATTENTE DE VOTES
+              </div>
+            )}
             {leaderboard.map((row, i) => (
-              <div key={row.tiktok_user} className="flex items-center justify-between py-1.5 border-b border-line last:border-b-0">
-                <span className="text-white text-sm">{i + 1}. @{row.tiktok_user}</span>
-                <span className="font-mono text-signal text-sm">{row.total_points} pts</span>
+              <div
+                key={row.tiktok_user}
+                className="flex items-center justify-between px-5 py-2.5 border-b border-console-line last:border-b-0"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="font-consolemono text-console-muted text-xs w-5">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span className="text-console-text text-sm">@{row.tiktok_user}</span>
+                </div>
+                <span className="font-consolemono text-console-ready text-sm font-bold">{row.total_points}</span>
               </div>
             ))}
           </div>
         </div>
       </div>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   );
 }
