@@ -17,13 +17,14 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AdminTopControls } from "@/components/AdminTopControls";
 import { supabaseBrowser } from "@/lib/supabase";
 import type { Question } from "@/lib/supabase";
 
 type SessionRow = { id: string; started_at: string; ended_at?: string | null; status: string; players: number };
 type AnswerRow = { question_id: string; tiktok_user: string; is_correct: boolean; created_at?: string | null };
+type StoredQuestion = { id: string; session_id: string; started_at: string; status: string };
 type MetricCardProps = {
   label: string;
   value: string;
@@ -52,6 +53,7 @@ function MetricCard({ label, value, helper, icon: Icon, color, delta, deltaSuffi
   const deltaLabel = formatDelta(delta, deltaSuffix);
   const positive = (delta ?? 0) >= 0;
   const DeltaIcon = positive ? TrendingUp : TrendingDown;
+
   return (
     <div className="bg-auth-panel border border-auth-border rounded-xl p-4 min-w-0">
       <div className="flex items-start gap-3">
@@ -74,9 +76,9 @@ function MetricCard({ label, value, helper, icon: Icon, color, delta, deltaSuffi
   );
 }
 
-function CompactEmpty({ title, description }: { title: string; description: string }) {
+function CompactEmpty({ title, description, compact = false }: { title: string; description: string; compact?: boolean }) {
   return (
-    <div className="px-5 py-7 flex items-center gap-4">
+    <div className={`px-5 ${compact ? "py-5" : "py-7"} flex items-center gap-4`}>
       <div className="w-10 h-10 rounded-xl bg-white/[0.035] border border-auth-border flex items-center justify-center shrink-0">
         <Radio size={18} className="text-auth-mutedDim" />
       </div>
@@ -96,19 +98,13 @@ export default function DashboardPage() {
   const [questionIndex, setQuestionIndex] = useState<{ current: number; total: number } | null>(null);
   const [recentSessions, setRecentSessions] = useState<SessionRow[]>([]);
   const [allSessions, setAllSessions] = useState<SessionRow[]>([]);
-  const [questions, setQuestions] = useState<Array<{ id: string; session_id: string; started_at: string; status: string }>>([]);
+  const [questions, setQuestions] = useState<StoredQuestion[]>([]);
   const [answers, setAnswers] = useState<AnswerRow[]>([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   async function loadActive() {
-    const { data: q } = await db
-      .from("questions")
-      .select("*")
-      .eq("status", "active")
-      .order("started_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { data: q } = await db.from("questions").select("*").eq("status", "active").order("started_at", { ascending: false }).limit(1).maybeSingle();
     setActiveQuestion(q ?? null);
 
     if (!q) {
@@ -134,33 +130,19 @@ export default function DashboardPage() {
 
   async function loadAnalytics() {
     setLoadingAnalytics(true);
-    const now = new Date();
-    const sevenDaysAgo = dayStart(new Date(now.getTime() - 6 * 86400000));
-
-    const { data: sessionsData } = await db
-      .from("sessions")
-      .select("id,started_at,ended_at,status")
-      .gte("started_at", sevenDaysAgo.toISOString())
-      .order("started_at", { ascending: false });
+    const sevenDaysAgo = dayStart(new Date(Date.now() - 6 * 86400000));
+    const { data: sessionsData } = await db.from("sessions").select("id,started_at,ended_at,status").gte("started_at", sevenDaysAgo.toISOString()).order("started_at", { ascending: false });
 
     const sessions = sessionsData ?? [];
     const sessionIds = sessions.map((s) => s.id);
-    let questionRows: Array<{ id: string; session_id: string; started_at: string; status: string }> = [];
+    let questionRows: StoredQuestion[] = [];
     let answerRows: AnswerRow[] = [];
 
     if (sessionIds.length) {
-      const { data: q } = await db
-        .from("questions")
-        .select("id,session_id,started_at,status")
-        .in("session_id", sessionIds)
-        .order("started_at", { ascending: true });
-      questionRows = q ?? [];
+      const { data: q } = await db.from("questions").select("id,session_id,started_at,status").in("session_id", sessionIds).order("started_at", { ascending: true });
+      questionRows = (q ?? []) as StoredQuestion[];
       if (questionRows.length) {
-        const { data: a } = await db
-          .from("answers")
-          .select("question_id,tiktok_user,is_correct,created_at")
-          .in("question_id", questionRows.map((row) => row.id))
-          .limit(20000);
+        const { data: a } = await db.from("answers").select("question_id,tiktok_user,is_correct,created_at").in("question_id", questionRows.map((row) => row.id)).limit(20000);
         answerRows = (a ?? []) as AnswerRow[];
       }
     }
@@ -201,51 +183,50 @@ export default function DashboardPage() {
   const totalVotes = Object.values(answerCounts).reduce((a, b) => a + b, 0);
 
   const analytics = useMemo(() => {
-    const now = new Date();
-    const today = dayStart(now);
+    const today = dayStart(new Date());
     const yesterday = new Date(today.getTime() - 86400000);
     const tomorrow = new Date(today.getTime() + 86400000);
-
     const todaySessions = allSessions.filter((s) => new Date(s.started_at) >= today && new Date(s.started_at) < tomorrow);
     const yesterdaySessions = allSessions.filter((s) => new Date(s.started_at) >= yesterday && new Date(s.started_at) < today);
-
     const questionDate = new Map(questions.map((q) => [q.id, new Date(q.started_at)]));
-    const todayAnswers = answers.filter((a) => {
-      const d = a.created_at ? new Date(a.created_at) : questionDate.get(a.question_id);
-      return !!d && d >= today && d < tomorrow;
-    });
-    const yesterdayAnswers = answers.filter((a) => {
-      const d = a.created_at ? new Date(a.created_at) : questionDate.get(a.question_id);
-      return !!d && d >= yesterday && d < today;
-    });
 
+    const inWindow = (a: AnswerRow, start: Date, end: Date) => {
+      const d = a.created_at ? new Date(a.created_at) : questionDate.get(a.question_id);
+      return !!d && d >= start && d < end;
+    };
+
+    const todayAnswers = answers.filter((a) => inWindow(a, today, tomorrow));
+    const yesterdayAnswers = answers.filter((a) => inWindow(a, yesterday, today));
     const uniqueToday = new Set(todayAnswers.map((a) => a.tiktok_user)).size;
     const uniqueYesterday = new Set(yesterdayAnswers.map((a) => a.tiktok_user)).size;
     const successToday = todayAnswers.length ? (todayAnswers.filter((a) => a.is_correct).length / todayAnswers.length) * 100 : null;
     const successYesterday = yesterdayAnswers.length ? (yesterdayAnswers.filter((a) => a.is_correct).length / yesterdayAnswers.length) * 100 : null;
 
     function relative(current: number, previous: number) {
-      if (previous === 0) return current === 0 ? 0 : null;
+      if (previous === 0) return null;
       return ((current - previous) / previous) * 100;
     }
 
     return {
       parties: todaySessions.length,
+      partiesYesterday: yesterdaySessions.length,
       partiesDelta: relative(todaySessions.length, yesterdaySessions.length),
       players: uniqueToday,
+      playersYesterday: uniqueYesterday,
       playersDelta: relative(uniqueToday, uniqueYesterday),
       responses: todayAnswers.length,
+      responsesYesterday: yesterdayAnswers.length,
       responsesDelta: relative(todayAnswers.length, yesterdayAnswers.length),
       success: successToday,
+      successYesterday,
       successDelta: successToday !== null && successYesterday !== null ? successToday - successYesterday : null,
     };
   }, [allSessions, answers, questions]);
 
   const activityData = useMemo(() => {
-    const now = new Date();
     const questionDate = new Map(questions.map((q) => [q.id, new Date(q.started_at)]));
     return Array.from({ length: 7 }, (_, index) => {
-      const start = dayStart(new Date(now.getTime() - (6 - index) * 86400000));
+      const start = dayStart(new Date(Date.now() - (6 - index) * 86400000));
       const end = new Date(start.getTime() + 86400000);
       const dayAnswers = answers.filter((a) => {
         const d = a.created_at ? new Date(a.created_at) : questionDate.get(a.question_id);
@@ -263,6 +244,10 @@ export default function DashboardPage() {
   const totalStoredQuestions = questions.length;
   const activeStoredQuestions = questions.filter((q) => q.status === "active").length;
   const closedStoredQuestions = questions.filter((q) => q.status === "closed").length;
+  const otherStoredQuestions = Math.max(0, totalStoredQuestions - activeStoredQuestions - closedStoredQuestions);
+  const activePct = totalStoredQuestions ? (activeStoredQuestions / totalStoredQuestions) * 100 : 0;
+  const closedPct = totalStoredQuestions ? (closedStoredQuestions / totalStoredQuestions) * 100 : 0;
+  const otherPct = Math.max(0, 100 - activePct - closedPct);
 
   const quickActions = [
     { href: "/admin/sessions-live", icon: Gamepad2, label: "Nouvelle partie" },
@@ -271,6 +256,8 @@ export default function DashboardPage() {
     { href: "/admin/joueurs", icon: Users, label: "Joueurs" },
     { href: "/admin/categories", icon: Target, label: "Catégories" },
   ];
+
+  const noYesterday = (value: number, label: string) => value === 0 ? `Aucune ${label} hier` : "";
 
   return (
     <div className="p-5 lg:p-8 flex flex-col gap-5 lg:gap-6">
@@ -289,20 +276,17 @@ export default function DashboardPage() {
       </header>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-        <MetricCard label="Parties aujourd’hui" value={analytics.parties.toLocaleString("fr-FR")} helper="Sessions lancées aujourd’hui" icon={Gamepad2} color="#4C6FFF" delta={analytics.partiesDelta} />
-        <MetricCard label="Joueurs uniques" value={analytics.players.toLocaleString("fr-FR")} helper="Participants détectés aujourd’hui" icon={Users} color="#9B4DFF" delta={analytics.playersDelta} />
+        <MetricCard label="Parties aujourd’hui" value={analytics.parties.toLocaleString("fr-FR")} helper={noYesterday(analytics.partiesYesterday, "session")} icon={Gamepad2} color="#4C6FFF" delta={analytics.partiesDelta} />
+        <MetricCard label="Joueurs uniques" value={analytics.players.toLocaleString("fr-FR")} helper={noYesterday(analytics.playersYesterday, "activité")} icon={Users} color="#9B4DFF" delta={analytics.playersDelta} />
         <MetricCard label="Spectateurs live" value="—" helper="Disponible dès remontée TikTok LIVE" icon={Eye} color="#3DDCFF" />
-        <MetricCard label="Réponses envoyées" value={analytics.responses.toLocaleString("fr-FR")} helper="Votes A/B/C/D aujourd’hui" icon={Activity} color="#FF3D8E" delta={analytics.responsesDelta} />
-        <MetricCard label="Taux de réussite" value={analytics.success === null ? "—" : `${Math.round(analytics.success)}%`} helper="En attente des premières réponses" icon={Target} color="#F5A623" delta={analytics.successDelta} deltaSuffix="pts vs hier" />
+        <MetricCard label="Réponses envoyées" value={analytics.responses.toLocaleString("fr-FR")} helper={noYesterday(analytics.responsesYesterday, "réponse")} icon={Activity} color="#FF3D8E" delta={analytics.responsesDelta} />
+        <MetricCard label="Taux de réussite" value={analytics.success === null ? "—" : `${Math.round(analytics.success)}%`} helper={analytics.successYesterday === null ? "Aucune donnée comparable hier" : "En attente des premières réponses"} icon={Target} color="#F5A623" delta={analytics.successDelta} deltaSuffix="pts vs hier" />
       </section>
 
       <section className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4 items-start">
         <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
           <div className="px-5 py-4 border-b border-auth-border flex items-center justify-between">
-            <div>
-              <p className="text-auth-text font-bold text-sm">Partie en cours</p>
-              <p className="text-auth-muted text-[11px] mt-0.5">Question et votes reçus en temps réel</p>
-            </div>
+            <div><p className="text-auth-text font-bold text-sm">Partie en cours</p><p className="text-auth-muted text-[11px] mt-0.5">Question et votes reçus en temps réel</p></div>
             {isLive ? <span className="flex items-center gap-1.5 text-auth-live text-[10px] font-bold uppercase tracking-wider"><span className="w-1.5 h-1.5 rounded-full bg-auth-live animate-pulse" /> LIVE</span> : <span className="text-auth-mutedDim text-[10px] font-bold uppercase">Hors ligne</span>}
           </div>
 
@@ -341,11 +325,11 @@ export default function DashboardPage() {
             <BarChart3 size={17} className="text-auth-purple" />
           </div>
           {loadingAnalytics ? (
-            <CompactEmpty title="Chargement des statistiques" description="Lecture des sessions, questions et réponses Supabase…" />
+            <CompactEmpty compact title="Chargement des statistiques" description="Lecture des sessions, questions et réponses Supabase…" />
           ) : !hasSevenDayActivity ? (
-            <CompactEmpty title="Aucune activité récente" description="Le graphique apparaîtra dès que les premières réponses seront enregistrées." />
+            <CompactEmpty compact title="Aucune activité récente" description="Le graphique apparaîtra dès que les premières réponses seront enregistrées." />
           ) : (
-            <div className="h-[285px] p-4">
+            <div className="h-[265px] p-4">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={activityData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1D2030" vertical={false} />
@@ -364,17 +348,33 @@ export default function DashboardPage() {
       <section className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4 items-start">
         <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
           <div className="px-5 py-4 border-b border-auth-border flex items-center justify-between"><div><p className="text-auth-text font-bold text-sm">Dernières sessions live</p><p className="text-auth-muted text-[11px] mt-0.5">5 sessions les plus récentes sur les 7 derniers jours</p></div><Link href="/admin/parties" className="text-auth-blue text-xs font-semibold hover:text-auth-text transition">Voir les parties →</Link></div>
-          {recentSessions.length === 0 ? <CompactEmpty title="Aucune session récente" description="Les dernières sessions apparaîtront ici après le premier live." /> : (
+          {recentSessions.length === 0 ? <CompactEmpty compact title="Aucune session récente" description="Les dernières sessions apparaîtront ici après le premier live." /> : (
             <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm"><thead><tr className="text-auth-mutedDim text-[9px] uppercase tracking-[0.14em] border-b border-auth-border"><th className="text-left px-5 py-3 font-bold">Session</th><th className="text-left px-3 py-3 font-bold">Date</th><th className="text-left px-3 py-3 font-bold">Joueurs</th><th className="text-left px-3 py-3 font-bold">Statut</th></tr></thead><tbody>{recentSessions.map((s) => <tr key={s.id} className="border-b border-auth-border/70 last:border-0 hover:bg-white/[0.02]"><td className="px-5 py-3 text-auth-text font-mono text-xs">#{s.id.slice(0, 8)}</td><td className="px-3 py-3 text-auth-muted text-xs">{new Date(s.started_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td><td className="px-3 py-3 text-auth-text text-xs">{s.players}</td><td className="px-3 py-3"><span className={`text-[9px] font-bold px-2 py-1 rounded-full ${s.status === "active" ? "bg-auth-live/15 text-auth-live" : "bg-white/5 text-auth-muted"}`}>{s.status === "active" ? "EN COURS" : "TERMINÉE"}</span></td></tr>)}</tbody></table></div>
           )}
         </div>
 
         <div className="bg-auth-panel border border-auth-border rounded-xl overflow-hidden">
           <div className="px-5 py-4 border-b border-auth-border flex items-center justify-between"><div><p className="text-auth-text font-bold text-sm">Questions enregistrées</p><p className="text-auth-muted text-[11px] mt-0.5">Données réellement présentes dans les sessions des 7 derniers jours</p></div><HelpCircle size={17} className="text-auth-blue" /></div>
-          <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="rounded-xl border border-auth-border bg-auth-bg/40 p-4"><p className="text-auth-mutedDim text-[9px] font-bold uppercase tracking-widest">Total</p><p className="text-auth-text text-2xl font-bold mt-1">{totalStoredQuestions.toLocaleString("fr-FR")}</p><p className="text-auth-muted text-[11px] mt-1">Questions trouvées</p></div>
-            <div className="rounded-xl border border-auth-border bg-auth-bg/40 p-4"><p className="text-auth-mutedDim text-[9px] font-bold uppercase tracking-widest">Actives</p><p className="text-auth-text text-2xl font-bold mt-1">{activeStoredQuestions}</p><p className="text-auth-muted text-[11px] mt-1">En diffusion</p></div>
-            <div className="rounded-xl border border-auth-border bg-auth-bg/40 p-4"><p className="text-auth-mutedDim text-[9px] font-bold uppercase tracking-widest">Clôturées</p><p className="text-auth-text text-2xl font-bold mt-1">{closedStoredQuestions}</p><p className="text-auth-muted text-[11px] mt-1">Déjà jouées</p></div>
+          <div className="p-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-xl border border-auth-border bg-auth-bg/40 p-4"><p className="text-auth-mutedDim text-[9px] font-bold uppercase tracking-widest">Total</p><p className="text-auth-text text-2xl font-bold mt-1">{totalStoredQuestions.toLocaleString("fr-FR")}</p><p className="text-auth-muted text-[11px] mt-1">Questions trouvées</p></div>
+              <div className="rounded-xl border border-auth-border bg-auth-bg/40 p-4"><p className="text-auth-mutedDim text-[9px] font-bold uppercase tracking-widest">Actives</p><p className="text-auth-text text-2xl font-bold mt-1">{activeStoredQuestions}</p><p className="text-auth-muted text-[11px] mt-1">En diffusion</p></div>
+              <div className="rounded-xl border border-auth-border bg-auth-bg/40 p-4"><p className="text-auth-mutedDim text-[9px] font-bold uppercase tracking-widest">Clôturées</p><p className="text-auth-text text-2xl font-bold mt-1">{closedStoredQuestions}</p><p className="text-auth-muted text-[11px] mt-1">Déjà jouées</p></div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-auth-border bg-auth-bg/25 p-4">
+              <div className="flex items-center justify-between text-[10px] mb-2"><span className="text-auth-muted">Répartition des questions</span><span className="text-auth-mutedDim">{totalStoredQuestions ? `${Math.round(closedPct)}% clôturées` : "Aucune donnée"}</span></div>
+              <div className="h-2 rounded-full bg-white/5 overflow-hidden flex">
+                <div className="h-full bg-auth-blue" style={{ width: `${activePct}%` }} />
+                <div className="h-full bg-auth-positive" style={{ width: `${closedPct}%` }} />
+                <div className="h-full bg-auth-mutedDim/40" style={{ width: `${otherPct}%` }} />
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-[10px] text-auth-muted">
+                <span className="flex items-center gap-1.5"><i className="w-1.5 h-1.5 rounded-full bg-auth-blue" /> {activeStoredQuestions} active{activeStoredQuestions > 1 ? "s" : ""}</span>
+                <span className="flex items-center gap-1.5"><i className="w-1.5 h-1.5 rounded-full bg-auth-positive" /> {closedStoredQuestions} clôturée{closedStoredQuestions > 1 ? "s" : ""}</span>
+                {otherStoredQuestions > 0 && <span className="flex items-center gap-1.5"><i className="w-1.5 h-1.5 rounded-full bg-auth-mutedDim" /> {otherStoredQuestions} autre{otherStoredQuestions > 1 ? "s" : ""}</span>}
+              </div>
+            </div>
           </div>
           <div className="px-5 pb-5 flex justify-end"><Link href="/admin/questions" className="text-auth-blue text-xs font-semibold hover:text-auth-text transition">Gérer les questions →</Link></div>
         </div>
