@@ -1,0 +1,13 @@
+{
+  "name": "quizzlivefr-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "tiktok-live-connector": "^2.0.6"
+  }
+}

@@ -1,0 +1,8 @@
+node_modules/
+.next/
+.env
+.env.local
+worker/node_modules/
+worker/.env
+*.log
+.DS_Store
